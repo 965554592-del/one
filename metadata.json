@@ -1,0 +1,6 @@
+{
+  "name": "餐饮财务管理系统 - 专业版",
+  "description": "多维度食堂财务管理、食材对账、基准价审计及运行统计报表生成系统。支持本地硬盘数据备份与导出。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
