@@ -35,10 +35,35 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   // CORS: allow split-deployment (frontend on a different origin).
-  // Set CORS_ORIGIN to a comma-separated whitelist, or "*" to allow any origin.
+  // CORS_ORIGIN can be:
+  //   - "*"  : allow any origin
+  //   - comma-separated list of exact origins or wildcard patterns like "*.autoparts.fit"
+  //     (matches any subdomain, e.g. www.autoparts.fit, vida.autoparts.fit)
   const corsOrigin = (process.env.CORS_ORIGIN || "*").trim();
+  const corsMatchers = corsOrigin === "*"
+    ? null
+    : corsOrigin.split(",").map(s => s.trim()).filter(Boolean).map(pattern => {
+        if (pattern.includes("*")) {
+          // Convert "*.autoparts.fit" -> /^https?:\/\/([^.]+\.)?autoparts\.fit$/
+          const escaped = pattern
+            .replace(/^https?:\/\//, "")
+            .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+            .replace(/\\\*/g, "[^.]+");
+          return new RegExp(`^https?:\\/\\/${escaped}$`, "i");
+        }
+        // Exact match, normalize to include protocol if missing
+        return /^https?:\/\//i.test(pattern) ? pattern : `https://${pattern}`;
+      });
   app.use(cors({
-    origin: corsOrigin === "*" ? true : corsOrigin.split(",").map(s => s.trim()),
+    origin: corsMatchers === null
+      ? true
+      : (origin, cb) => {
+          if (!origin) return cb(null, true); // same-origin / curl
+          const ok = corsMatchers.some(m =>
+            typeof m === "string" ? m === origin : m.test(origin)
+          );
+          cb(ok ? null : new Error(`CORS blocked: ${origin}`), ok);
+        },
   }));
 
   // PUBLIC_BASE_URL used to build absolute URLs for uploaded files so the
