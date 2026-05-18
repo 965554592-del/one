@@ -7,7 +7,7 @@ services:
     env: node
     plan: free
     region: singapore   # change as needed: oregon, frankfurt, ohio, etc.
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: node dist-server/server.mjs
     autoDeploy: true
     envVars:
