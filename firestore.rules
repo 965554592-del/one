@@ -1,0 +1,281 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - role: string (required, 'admin' or 'user')
+    //   - createdAt: string (required, ISO 8601 date string)
+    //
+    // Collection: products
+    // Document ID: {productId}
+    // Fields:
+    //   - sku: string (required)
+    //   - name: string (required)
+    //   - categoryId: string (required)
+    //   - categoryName: string (optional)
+    //   - price: number (required)
+    //   - techSpecs: map (optional)
+    //   - imageUrls: list (optional)
+    //   - videoUrl: string (optional)
+    //   - createdAt: string (required)
+    //
+    // Collection: categories
+    // Document ID: {categoryId}
+    // Fields:
+    //   - name: string (required)
+    //   - description: string (optional)
+    //   - order: number (optional)
+    //   - createdAt: string (required)
+    //
+    // Collection: pdfs
+    // Document ID: {pdfId}
+    // Fields:
+    //   - title: string (required)
+    //   - url: string (required)
+    //   - allowedRoles: list (required)
+    //   - downloadCount: number (required)
+    //   - createdAt: string (required)
+    //
+    // Collection: messages
+    // Document ID: {messageId}
+    // Fields:
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - message: string (required)
+    //   - status: string (required, 'new' or 'processed')
+    //   - createdAt: string (required)
+    //
+    // Collection: salesRegions
+    // Document ID: {regionId}
+    // Fields:
+    //   - name: string (required)
+    //   - lat: number (required)
+    //   - lng: number (required)
+    //   - pulseStyle: string (optional)
+    //   - contactInfo: string (optional)
+    //
+    // Collection: translations
+    // Document ID: {translationId}
+    // Fields:
+    //   - key: string (required)
+    //   - en, zh, es, ar, ru, fr, de: string (optional)
+    //
+    // Collection: userDownloads
+    // Document ID: {downloadId}
+    // Fields:
+    //   - userId: string (required)
+    //   - pdfId: string (required)
+    //   - timestamp: string (required)
+    //   - ip: string (optional)
+    //
+    // Collection: qualifications
+    // Document ID: {qualId}
+    // Fields:
+    //   - title: string (required)
+    //   - category: string (required)
+    //   - fileUrl: string (required)
+    //   - fileName: string (required)
+    //   - createdAt: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          request.auth.uid == "nfhM0kq4b3QPodMIQYUDD6aNzgn1" ||
+          request.auth.token.get('email', '').lower() == "965554592@qq.com" ||
+          request.auth.token.get('email', '').lower() == "admin@vida.com" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 128 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 256 &&
+             data.role in ['admin', 'user'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidProduct(data) {
+      return true;
+    }
+
+    function isValidCategory(data) {
+      return hasRequiredFields(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('description' in data) || (data.description is string && data.description.size() < 1000)) &&
+             (!('order' in data) || data.order is number) &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidPDF(data) {
+      return hasRequiredFields(['title', 'url', 'allowedRoles', 'downloadCount', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 256 &&
+             data.url is string && data.url.size() > 0 && data.url.size() < 1024 &&
+             data.allowedRoles is list && data.allowedRoles.size() > 0 && data.allowedRoles.size() <= 5 &&
+             data.downloadCount is number && data.downloadCount >= 0 &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidMessage(data) {
+      return hasRequiredFields(['name', 'email', 'message', 'status', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 256 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 256 &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 5000 &&
+             data.status in ['new', 'processed'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidSalesRegion(data) {
+      return hasRequiredFields(['name', 'lat', 'lng']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 256 &&
+             data.lat is number && data.lat >= -90 && data.lat <= 90 &&
+             data.lng is number && data.lng >= -180 && data.lng <= 180 &&
+             (!('pulseStyle' in data) || (data.pulseStyle is string && data.pulseStyle.size() < 100)) &&
+             (!('contactInfo' in data) || (data.contactInfo is string && data.contactInfo.size() < 1000));
+    }
+
+    function isValidTranslation(data) {
+      return hasRequiredFields(['key']) &&
+             data.key is string && data.key.size() > 0 && data.key.size() < 256;
+    }
+
+    function isValidUserDownload(data) {
+      return hasRequiredFields(['userId', 'pdfId', 'timestamp']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.pdfId is string &&
+             isValidDateString(data.timestamp);
+    }
+
+    function isValidQualification(data) {
+      return hasRequiredFields(['title', 'category', 'fileUrl', 'fileName', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 256 &&
+             data.category is string && data.category in ['ISO Certification', 'CE Certification', 'Patents', 'Awards', 'Lighting System', 'Braking System', 'Filters', 'Exterior Parts', 'Others'] &&
+             data.fileUrl is string && data.fileUrl.size() > 0 && data.fileUrl.size() < 1048576 &&
+             data.fileName is string && data.fileName.size() > 0 && data.fileName.size() < 256 &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidSettings(data) {
+      return true;
+    }
+
+    function isValidContact(data) {
+      return hasRequiredFields(['type', 'value_zh', 'value_en', 'icon', 'order', 'createdAt']) &&
+             data.type in ['address', 'phone', 'email', 'hours', 'other'] &&
+             data.value_zh is string && data.value_zh.size() < 1024 &&
+             data.value_en is string && data.value_en.size() < 1024 &&
+             data.icon is string && data.icon.size() < 100 &&
+             data.order is number &&
+             isValidDateString(data.createdAt) &&
+             (!('label_zh' in data) || (data.label_zh is string && data.label_zh.size() < 256)) &&
+             (!('label_en' in data) || (data.label_en is string && data.label_en.size() < 256));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    request.resource.data.uid == request.auth.uid &&
+                    ((isOwner(userId) && request.resource.data.role == 'user') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    request.resource.data.uid == resource.data.uid &&
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidProduct(request.resource.data));
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidCategory(request.resource.data));
+    }
+
+    match /pdfs/{pdfId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidPDF(request.resource.data));
+    }
+
+    match /messages/{messageId} {
+      allow create: if isValidMessage(request.resource.data) && request.resource.data.status == 'new';
+      allow get, list: if isAdmin();
+      allow update, delete: if isAdmin() && (request.method == 'delete' || isValidMessage(request.resource.data));
+    }
+
+    match /salesRegions/{regionId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidSalesRegion(request.resource.data));
+    }
+
+    match /translations/{translationId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidTranslation(request.resource.data));
+    }
+
+    match /userDownloads/{downloadId} {
+      allow create: if isAuthenticated() && isValidUserDownload(request.resource.data);
+      allow read: if isAdmin();
+    }
+
+    match /qualifications/{qualId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidQualification(request.resource.data));
+    }
+
+    match /contacts/{contactId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && (request.method == 'delete' || isValidContact(request.resource.data));
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

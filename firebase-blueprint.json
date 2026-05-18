@@ -1,0 +1,240 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data including roles for access control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Auto parts product catalog.",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "categoryId": { "type": "string", "description": "Reference to Category document ID" },
+        "categoryName": { "type": "string", "description": "Denormalized category name for easier display" },
+        "price": { "type": "number" },
+        "techSpecs": {
+          "type": "object",
+          "properties": {
+            "material": { "type": "string" },
+            "weight": { "type": "string" },
+            "compatibility": { "type": "string" }
+          }
+        },
+        "imageUrls": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "catalogUrl": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sku", "name", "categoryId", "price", "createdAt"]
+    },
+    "Category": {
+      "title": "Product Category",
+      "description": "Categories for grouping products.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "PDF": {
+      "title": "PDF Document",
+      "description": "Downloadable PDF documents with access control.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "allowedRoles": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["admin", "user"] }
+        },
+        "downloadCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "url", "allowedRoles", "downloadCount", "createdAt"]
+    },
+    "Message": {
+      "title": "Contact Message",
+      "description": "Inquiries from the contact form.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["new", "processed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "message", "status", "createdAt"]
+    },
+    "SalesRegion": {
+      "title": "Sales Region",
+      "description": "Map points for the 3D globe.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "pulseStyle": { "type": "string" },
+        "contactInfo": { "type": "string" }
+      },
+      "required": ["name", "lat", "lng"]
+    },
+    "Translation": {
+      "title": "Translation",
+      "description": "Global site text translations.",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "en": { "type": "string" },
+        "zh": { "type": "string" },
+        "es": { "type": "string" },
+        "ar": { "type": "string" },
+        "ru": { "type": "string" },
+        "fr": { "type": "string" },
+        "de": { "type": "string" }
+      },
+      "required": ["key"]
+    },
+    "UserDownload": {
+      "title": "User Download",
+      "description": "Log of user PDF downloads.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "pdfId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "ip": { "type": "string" }
+      },
+      "required": ["userId", "pdfId", "timestamp"]
+    },
+    "Qualification": {
+      "title": "Qualification",
+      "description": "Company certifications and patents.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["ISO Certification", "CE Certification", "Patents", "Awards", "Lighting System", "Braking System", "Filters", "Exterior Parts", "Others"] },
+        "fileUrl": { "type": "string", "description": "Base64 or URL of the file" },
+        "fileName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "fileUrl", "fileName", "createdAt"]
+    },
+    "Settings": {
+      "title": "Site Settings",
+      "description": "Global application settings like social links.",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "facebook": { "type": "string" },
+        "twitter": { "type": "string" },
+        "instagram": { "type": "string" },
+        "linkedin": { "type": "string" },
+        "whatsappLink": { "type": "string" },
+        "whatsappQrUrl": { "type": "string" },
+        "starProductId": { "type": "string" },
+        "starProductTitle": { "type": "string" },
+        "catalogUrl": { "type": "string" },
+        "catalogTitle": { "type": "string" },
+        "globeTitle": { "type": "string" },
+        "globeSubtitle": { "type": "string" },
+        "globeBottomTitle": { "type": "string" },
+        "globeBottomSubtitle": { "type": "string" },
+        "statsBgUrl": { "type": "string" },
+        "statsVideoUrl": { "type": "string" },
+        "storyBgUrl": { "type": "string" },
+        "storyVideoUrl": { "type": "string" },
+        "heroBgUrl": { "type": "string" },
+        "heroVideoUrl": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "heroStyles": {
+          "type": "object",
+          "description": "Custom Tailwind classes for hero headlines"
+        },
+        "featuresLayout": { "type": "string", "enum": ["classic", "modern", "split"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["key", "updatedAt"]
+    },
+    "Contact": {
+      "title": "Contact Point",
+      "description": "Individual contact information entry.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["address", "phone", "email", "hours", "other"] },
+        "label_zh": { "type": "string" },
+        "label_en": { "type": "string" },
+        "value_zh": { "type": "string" },
+        "value_en": { "type": "string" },
+        "icon": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "value_zh", "value_en", "icon", "order", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles and roles."
+    },
+    "products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Stores product catalog."
+    },
+    "categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Stores product categories."
+    },
+    "pdfs/{pdfId}": {
+      "schema": { "$ref": "#/entities/PDF" },
+      "description": "Stores PDF metadata and access rules."
+    },
+    "messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Stores contact form submissions."
+    },
+    "salesRegions/{regionId}": {
+      "schema": { "$ref": "#/entities/SalesRegion" },
+      "description": "Stores sales region points for the 3D globe."
+    },
+    "translations/{translationId}": {
+      "schema": { "$ref": "#/entities/Translation" },
+      "description": "Stores global site text translations."
+    },
+    "userDownloads/{downloadId}": {
+      "schema": { "$ref": "#/entities/UserDownload" },
+      "description": "Stores log of user PDF downloads."
+    },
+    "qualifications/{qualId}": {
+      "schema": { "$ref": "#/entities/Qualification" },
+      "description": "Stores company certifications and patents."
+    },
+    "contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/Contact" },
+      "description": "Stores individual contact information points."
+    },
+    "settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Stores global site settings."
+    }
+  }
+}

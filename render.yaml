@@ -1,0 +1,23 @@
+# Render Blueprint for the Vida B2B backend.
+# Push this repo to GitHub, then in Render: New > Blueprint > select this repo.
+# Render will read this file and provision the service automatically.
+services:
+  - type: web
+    name: vida-b2b-api
+    env: node
+    plan: free
+    region: singapore   # change as needed: oregon, frankfurt, ohio, etc.
+    buildCommand: npm install && npm run build:server
+    startCommand: node dist-server/server.mjs
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: "*"          # Tighten to your frontend domain after first deploy
+      - key: PUBLIC_BASE_URL
+        sync: false         # Set manually to https://<your-service>.onrender.com after first deploy
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/public/uploads
+      sizeGB: 1

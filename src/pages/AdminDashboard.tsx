@@ -1,0 +1,2945 @@
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
+import { useStore } from '../store/useStore';
+import { Navigate } from 'react-router-dom';
+import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Activity, RefreshCw, Edit, ShieldCheck, FileDown, Layers, Video, Image as ImageIcon, Share2, Mail, CheckCircle, Phone } from 'lucide-react';
+import { apiUrl } from '../lib/api';
+
+const deleteFileFromServer = async (fileUrl: string) => {
+  if (!fileUrl || !/\/uploads\//.test(fileUrl)) return true;
+  try {
+    const response = await fetch(apiUrl('/api/delete-file'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileUrl })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error deleting file from server:', error);
+    return false;
+  }
+};
+
+function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) {
+  const { t } = useTranslation();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const q = query(collection(db, 'messages'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const unread = snapshot.docs.filter(doc => doc.data().status === 'new').length;
+      setUnreadCount(unread);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'messages_badge');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const navItems = [
+    { id: 'dashboard', label: t('admin.dashboard'), icon: Activity },
+    { id: 'messages', label: t('admin.messages'), icon: MessageSquare, badge: unreadCount },
+    { id: 'products', label: t('admin.products'), icon: Package },
+    { id: 'categories', label: t('admin.categories'), icon: Layers },
+    { id: 'regions', label: t('admin.regions'), icon: MapPin },
+    { id: 'qualifications', label: t('admin.qualifications'), icon: ShieldCheck },
+    { id: 'certificates', label: t('admin.certificates_tab'), icon: ShieldCheck },
+    { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
+    { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
+    { id: 'translations', label: t('admin.translations'), icon: Edit },
+    { id: 'settings', label: t('admin.settings'), icon: Settings },
+    { id: 'system', label: t('admin.system_health'), icon: RefreshCw },
+  ];
+
+  return (
+    <nav className="space-y-1">
+      {navItems.map((item) => (
+        <button
+          key={item.id}
+          onClick={() => setActiveTab(item.id)}
+          className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+            activeTab === item.id ? 'bg-[#FFB300] text-[#0A192F]' : 'text-[#8892B0] hover:bg-[#112240] hover:text-[#E6F1FF]'
+          }`}
+        >
+          <div className="flex items-center">
+            <item.icon className="mr-3 flex-shrink-0 h-5 w-5" />
+            {item.label}
+          </div>
+          {item.badge !== undefined && item.badge > 0 && (
+            <span className={`px-2 py-0.5 text-[10px] rounded-full font-bold shadow-sm ${activeTab === item.id ? 'bg-[#0A192F] text-[#FFB300]' : 'bg-[#FFB300] text-[#0A192F]'}`}>
+              {item.badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export default function AdminDashboard() {
+  const { t } = useTranslation();
+  const { user, userRole, isAuthReady } = useStore();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Basic protection
+  if (isAuthReady && (!user || userRole !== 'admin')) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!isAuthReady) {
+    return <div className="p-8 text-center text-[#8892B0]">{t('admin.loading')}</div>;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h1 className="text-3xl font-bold text-[#E6F1FF] mb-8">{t('admin.title')}</h1>
+      
+      <div className="flex flex-col md:flex-row gap-8">
+        {/* Sidebar */}
+        <div className="w-full md:w-64 flex-shrink-0">
+          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+        </div>
+        {/* Content Area */}
+        <div className="flex-1 bg-[#112240] rounded-xl shadow-sm border border-white/5 p-6 min-h-[600px]">
+          {activeTab === 'dashboard' && <DashboardOverview />}
+          {activeTab === 'products' && <ProductsManager />}
+          {activeTab === 'categories' && <CategoriesManager />}
+          {activeTab === 'regions' && <RegionsManager />}
+          {activeTab === 'messages' && <MessagesManager />}
+          {activeTab === 'qualifications' && <QualificationsManager />}
+          {activeTab === 'translations' && <TranslationsManager />}
+          {activeTab === 'hero-stylist' && <HeroHeadlineStylist />}
+          {activeTab === 'contacts' && <ContactsManager />}
+          {activeTab === 'certificates' && <CertificatesManager />}
+          {activeTab === 'settings' && <SettingsManager />}
+          {activeTab === 'health' && <SystemHealthManager />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertificatesManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [certificates, setCertificates] = useState<any[]>(siteSettings?.certificates || []);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newCert, setNewCert] = useState({ title: '', imageUrl: '' });
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (siteSettings?.certificates) {
+      setCertificates(siteSettings.certificates);
+    }
+  }, [siteSettings]);
+
+  const handleSave = async (updatedCerts: any[]) => {
+    setIsSaving(true);
+    try {
+      const newSettings = { ...siteSettings, certificates: updatedCerts };
+      await setDoc(doc(db, 'settings', 'global'), { certificates: updatedCerts }, { merge: true });
+      setSiteSettings(newSettings);
+    } catch (error) {
+      console.error("Error saving certificates:", error);
+      alert(t('admin.save_failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAdd = () => {
+    if (!newCert.title || !newCert.imageUrl) {
+      alert(t('admin.fill_all_fields'));
+      return;
+    }
+    const updated = [...certificates, { id: Date.now().toString(), ...newCert }];
+    setCertificates(updated);
+    handleSave(updated);
+    setNewCert({ title: '', imageUrl: '' });
+    setIsAdding(false);
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm(t('admin.confirm_delete'))) {
+      const updated = certificates.filter(c => c.id !== id);
+      setCertificates(updated);
+      handleSave(updated);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const response = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Upload failed (${response.status}): ${text.substring(0, 100)}`);
+        }
+        const data = await response.json();
+        setNewCert({ ...newCert, imageUrl: data.url });
+      } catch (error: any) {
+        alert(`${t('admin.upload_failed')}: ${error.message}`);
+      }
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.certificates_management', 'Display Certificates')}</h2>
+        <button 
+          onClick={() => setIsAdding(true)}
+          className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_certificate', 'Add Certificate')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.cert_title', 'Certificate Title')}</label>
+              <input 
+                type="text" 
+                value={newCert.title} 
+                onChange={e => setNewCert({...newCert, title: e.target.value})} 
+                placeholder="ISO 9001"
+                className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.cert_icon', 'Certification Icon (Image)')}</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={newCert.imageUrl} 
+                  onChange={e => setNewCert({...newCert, imageUrl: e.target.value})} 
+                  placeholder="URL or Upload"
+                  className="flex-1 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                />
+                <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                  <Plus className="w-4 h-4 mr-1" />
+                  <span className="text-xs">{t('admin.upload')}</span>
+                  <input type="file" className="sr-only" accept="image/*" onChange={handleFileUpload} />
+                </label>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-[#8892B0]">{t('admin.cancel')}</button>
+            <button onClick={handleAdd} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-bold">{t('admin.add')}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        {certificates.map(cert => (
+          <div key={cert.id} className="relative group bg-[#0A192F] p-4 rounded-lg border border-white/5 flex flex-col items-center">
+            {cert.imageUrl ? (
+              <img src={cert.imageUrl} alt={cert.title} className="w-12 h-12 object-contain mb-2" />
+            ) : (
+              <ShieldCheck className="w-12 h-12 text-[#FFB300] mb-2" />
+            )}
+            <span className="text-xs text-[#E6F1FF] text-center font-medium">{cert.title}</span>
+            <button 
+              onClick={() => handleDelete(cert.id)}
+              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+      
+      {certificates.length === 0 && (
+        <div className="text-center py-12 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl">
+          {t('admin.no_certificates', 'No display certificates found')}
+        </div>
+      )}
+
+      {isSaving && (
+        <div className="fixed bottom-8 right-8 bg-[#FFB300] text-[#0A192F] px-4 py-2 rounded-full shadow-2xl flex items-center animate-bounce">
+          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          {t('admin.saving')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HeroHeadlineStylist() {
+  const { t, i18n } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [isSaving, setIsSaving] = useState(false);
+  const [translations, setTranslations] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = collection(db, 'translations');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTranslations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'translations_stylist');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const headlineKeys = [
+    { key: 'hero.partners', label: 'Headline 1 (Left)' },
+    { key: 'hero.oem', label: 'Headline 2 (Center)' },
+    { key: 'hero.global', label: 'Headline 3 (Right)' },
+    { key: 'hero.partners_desc', label: 'Desc 1 (Left)' },
+    { key: 'hero.support', label: 'Desc 2 (Center)' },
+    { key: 'hero.delivery', label: 'Desc 3 (Right)' },
+    { key: 'hero.benefit1_title', label: 'Benefit 1 Title' },
+    { key: 'hero.benefit2_title', label: 'Benefit 2 Title' },
+    { key: 'hero.benefit3_title', label: 'Benefit 3 Title' },
+    { key: 'hero.benefit4_title', label: 'Benefit 4 Title' },
+  ];
+
+  const presets = [
+    { name: 'Standard Gold', classes: 'text-[#FFB300] font-extrabold' },
+    { name: 'Cyber Neon', classes: 'text-[#00F3FF] font-black tracking-tighter drop-shadow-[0_0_8px_rgba(0,243,255,0.8)]' },
+    { name: 'Modern Silver', classes: 'text-[#E6F1FF] font-medium tracking-widest' },
+    { name: 'Industrial Red', classes: 'text-[#FF4D4D] font-black uppercase' },
+    { name: 'Soft Gray', classes: 'text-[#8892B0] font-normal' },
+    { name: 'Gradient Sunset', classes: 'bg-gradient-to-r from-[#FFB300] via-[#FF4D4D] to-purple-500 bg-clip-text text-transparent font-extrabold' },
+    { name: 'Elite Luxury', classes: 'text-[#FFB300] font-serif italic font-light tracking-[0.2em] uppercase underline underline-offset-8 decoration-white/20' },
+    { name: 'Brutalist Tech', classes: 'text-white font-mono font-black uppercase italic bg-[#FFB300] px-4 py-2 text-[#0A192F]' },
+    { name: 'Clean Corporate', classes: 'text-[#E6F1FF] font-sans font-light tracking-tight border-l-4 border-[#FFB300] pl-6' },
+    { name: 'Glossy Carbon', classes: 'text-[#E6F1FF] font-black drop-shadow-[2px_2px_0px_#FFB300] uppercase italic' },
+    { name: 'Golden Outline', classes: 'font-black text-transparent stroke-[#FFB300] stroke-1 [text-stroke:1px_#FFB300] uppercase tracking-tighter' },
+    { name: 'Future Minimal', classes: 'text-[#FFB300] font-light tracking-[0.5em] uppercase text-center opacity-80' }
+  ];
+
+  const sizeOptions = [
+    { name: 'xs', classes: 'text-xs' },
+    { name: 'sm', classes: 'text-sm' },
+    { name: 'base', classes: 'text-base' },
+    { name: 'lg', classes: 'text-lg' },
+    { name: 'xl', classes: 'text-xl' },
+    { name: '2xl', classes: 'text-2xl' },
+    { name: '3xl', classes: 'text-3xl' },
+    { name: '4xl', classes: 'text-4xl' },
+    { name: '5xl', classes: 'text-5xl' },
+    { name: '6xl', classes: 'text-6xl' },
+    { name: '7xl', classes: 'text-7xl' },
+  ];
+
+  const currentStyles = siteSettings?.heroStyles || {};
+
+  const handleUpdateText = async (key: string, lang: 'zh' | 'en', value: string) => {
+    const existing = translations.find(t => t.key === key);
+    if (existing) {
+      await setDoc(doc(db, 'translations', existing.id), { ...existing, [lang]: value });
+    } else {
+      await addDoc(collection(db, 'translations'), { key, zh: lang === 'zh' ? value : '', en: lang === 'en' ? value : '' });
+    }
+  };
+
+  const updateStyle = async (key: string, field: string, value: string) => {
+    const updatedStyles = {
+      ...currentStyles,
+      [key]: {
+        ...(currentStyles[key] || {}),
+        [field]: value
+      }
+    };
+    
+    setIsSaving(true);
+    try {
+      const newSettings = { ...siteSettings, heroStyles: updatedStyles };
+      await setDoc(doc(db, 'settings', 'global'), { heroStyles: updatedStyles }, { merge: true });
+      setSiteSettings(newSettings);
+    } catch (error) {
+      console.error("Save failed:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">Hero Headline Stylist</h2>
+        {isSaving && <span className="text-xs text-[#FFB300] animate-pulse">Saving style changes...</span>}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {headlineKeys.map(item => {
+          const style = currentStyles[item.key] || {};
+          const trans = translations.find(t => t.key === item.key);
+          const zhVal = trans?.zh || i18n.t(item.key, { lng: 'zh' });
+          const enVal = trans?.en || i18n.t(item.key, { lng: 'en' });
+
+          return (
+            <div key={item.key} className="bg-[#0A192F] p-6 rounded-xl border border-white/5 space-y-6">
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-sm font-bold text-[#FFB300] uppercase tracking-wider">{item.label}</span>
+                <span className="text-[10px] text-[#8892B0] font-mono">{item.key}</span>
+              </div>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* TEXT EDITING */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] text-[#8892B0] mb-1 font-bold uppercase">Chinese Content</label>
+                    <input 
+                      type="text" 
+                      defaultValue={zhVal}
+                      onBlur={e => handleUpdateText(item.key, 'zh', e.target.value)}
+                      className="w-full bg-[#112240] border border-white/10 text-white text-sm p-2 rounded-md outline-none focus:border-[#FFB300]/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#8892B0] mb-1 font-bold uppercase">English Content</label>
+                    <input 
+                      type="text" 
+                      defaultValue={enVal}
+                      onBlur={e => handleUpdateText(item.key, 'en', e.target.value)}
+                      className="w-full bg-[#112240] border border-white/10 text-white text-sm p-2 rounded-md outline-none focus:border-[#FFB300]/50 italic"
+                    />
+                  </div>
+                </div>
+
+                {/* STYLING CONTROLS */}
+                <div className="grid grid-cols-2 gap-4 items-end">
+                  <div>
+                    <label className="block text-[10px] text-[#8892B0] mb-1 uppercase font-bold text-center">Template</label>
+                    <select 
+                      value={style.presetClasses || ''} 
+                      onChange={e => updateStyle(item.key, 'presetClasses', e.target.value)}
+                      className="w-full bg-[#112240] border border-white/10 text-white text-xs p-2 rounded-md outline-none focus:border-[#FFB300]/50"
+                    >
+                      <option value="">Default</option>
+                      {presets.map(p => (
+                        <option key={p.name} value={p.classes}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#8892B0] mb-1 uppercase font-bold text-center">Size</label>
+                    <select 
+                      value={style.sizeClasses || ''} 
+                      onChange={e => updateStyle(item.key, 'sizeClasses', e.target.value)}
+                      className="w-full bg-[#112240] border border-white/10 text-white text-xs p-2 rounded-md outline-none focus:border-[#FFB300]/50"
+                    >
+                      <option value="">Auto</option>
+                      {sizeOptions.map(s => (
+                        <option key={s.name} value={s.classes}>{s.name.toUpperCase()}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-[10px] text-[#8892B0] mb-1 uppercase font-bold">Custom Tailwind (Advanced)</label>
+                    <input 
+                      type="text" 
+                      value={style.customClasses || ''} 
+                      onChange={e => updateStyle(item.key, 'customClasses', e.target.value)}
+                      placeholder="e.g. underline decoration-[#FFB300]"
+                      className="w-full bg-[#112240] border border-white/10 text-white text-[10px] p-2 rounded-md outline-none focus:border-[#FFB300]/50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* LIVE PREVIEW AREA */}
+              <div className="mt-4 p-6 bg-black/30 rounded-xl border border-white/5 flex flex-col items-center justify-center min-h-[140px] relative overflow-hidden group/preview">
+                <div className="absolute top-2 left-2 text-[8px] text-[#8892B0] uppercase tracking-widest opacity-50">Desktop Preview Canvas</div>
+                <div className={`${style.presetClasses || ''} ${style.sizeClasses || ''} ${style.customClasses || ''} transition-all duration-500 text-center scale-90 group-hover/preview:scale-100`}>
+                  {t(item.key)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ContactsManager() {
+  const { t } = useTranslation();
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ 
+    type: 'address', 
+    label_zh: '', 
+    label_en: '', 
+    value_zh: '', 
+    value_en: '',
+    icon: 'MapPin',
+    order: 0
+  });
+
+  const icons = [
+    { name: 'MapPin', icon: MapPin },
+    { name: 'Phone', icon: Phone },
+    { name: 'Mail', icon: Mail },
+    { name: 'MessageSquare', icon: MessageSquare },
+    { name: 'Activity', icon: Activity },
+    { name: 'ShieldCheck', icon: ShieldCheck }
+  ];
+
+  const types = [
+    { value: 'address', label: 'Address' },
+    { value: 'phone', label: 'Phone' },
+    { value: 'email', label: 'Email' },
+    { value: 'hours', label: 'Business Hours' },
+    { value: 'other', label: 'Other' }
+  ];
+
+  const fetchContacts = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'contacts'), orderBy('order'));
+      const snapshot = await getDocs(q);
+      setContacts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchContacts(); }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await setDoc(doc(db, 'contacts', editingId), formData, { merge: true });
+      } else {
+        await addDoc(collection(db, 'contacts'), { ...formData, createdAt: new Date().toISOString() });
+      }
+      setIsAdding(false);
+      setEditingId(null);
+      setFormData({ type: 'address', label_zh: '', label_en: '', value_zh: '', value_en: '', icon: 'MapPin', order: 0 });
+      fetchContacts();
+    } catch (error) {
+      alert("Save failed");
+    }
+  };
+
+  const handleEdit = (contact: any) => {
+    setEditingId(contact.id);
+    setFormData({
+      type: contact.type || 'other',
+      label_zh: contact.label_zh || '',
+      label_en: contact.label_en || '',
+      value_zh: contact.value_zh || '',
+      value_en: contact.value_en || '',
+      icon: contact.icon || 'MapPin',
+      order: contact.order || 0
+    });
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("Confirm delete this contact info?")) {
+      await deleteDoc(doc(db, 'contacts', id));
+      fetchContacts();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.contacts_management', 'Contact Information Management')}</h2>
+        <button 
+          onClick={() => { setIsAdding(true); setEditingId(null); setFormData({ type: 'address', label_zh: '', label_en: '', value_zh: '', value_en: '', icon: 'MapPin', order: 0 }); }}
+          className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium"
+        >
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_contact', 'Add Contact Point')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <form onSubmit={handleSubmit} className="bg-[#0A192F] p-6 rounded-lg border border-[#FFB300]/20 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1 font-bold">{t('admin.type', 'Type')}</label>
+              <select 
+                value={formData.type} 
+                onChange={e => setFormData({...formData, type: e.target.value})}
+                className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+              >
+                {types.map(t_item => <option key={t_item.value} value={t_item.value}>{t_item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1 font-bold">{t('admin.icon', 'Icon')}</label>
+              <select 
+                value={formData.icon} 
+                onChange={e => setFormData({...formData, icon: e.target.value})}
+                className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+              >
+                {icons.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1 font-bold">{t('admin.display_order')}</label>
+              <input 
+                type="number" 
+                value={formData.order} 
+                onChange={e => setFormData({...formData, order: parseInt(e.target.value)})}
+                className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="text-[10px] text-[#FFB300] uppercase font-bold tracking-widest border-b border-white/5 pb-1">{t('admin.zh_content')}</h4>
+              <div>
+                <label className="block text-[10px] text-[#8892B0] mb-1">{t('admin.label', 'Label')} (e.g. 总部)</label>
+                <input 
+                  type="text" 
+                  value={formData.label_zh} 
+                  onChange={e => setFormData({...formData, label_zh: e.target.value})}
+                  className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-[#8892B0] mb-1">{t('admin.value', 'Value')}</label>
+                <input 
+                  type="text" 
+                  value={formData.value_zh} 
+                  onChange={e => setFormData({...formData, value_zh: e.target.value})}
+                  className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h4 className="text-[10px] text-[#8892B0] uppercase font-bold tracking-widest border-b border-white/5 pb-1">{t('admin.en_content')}</h4>
+              <div>
+                <label className="block text-[10px] text-[#8892B0] mb-1">{t('admin.label')} (e.g. HQ)</label>
+                <input 
+                  type="text" 
+                  value={formData.label_en} 
+                  onChange={e => setFormData({...formData, label_en: e.target.value})}
+                  className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-[#8892B0] mb-1">{t('admin.value')}</label>
+                <input 
+                  type="text" 
+                  value={formData.value_en} 
+                  onChange={e => setFormData({...formData, value_en: e.target.value})}
+                  className="w-full bg-[#112240] border border-white/10 text-white p-2 rounded-md"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 text-[#8892B0]">{t('admin.cancel')}</button>
+            <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-bold">{t('admin.save_contact', 'Save Contact Info')}</button>
+          </div>
+        </form>
+      )}
+
+      <div className="grid grid-cols-1 gap-4">
+        {contacts.map(c => {
+          const IconComponent = (icons.find(i => i.name === c.icon)?.icon) || Mail;
+          return (
+            <div key={c.id} className="flex items-center justify-between p-4 bg-[#0A192F] rounded-xl border border-white/5 group hover:border-[#FFB300]/20 transition-all">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-[#112240] rounded-lg flex items-center justify-center text-[#FFB300]">
+                  <IconComponent className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-[#8892B0] font-bold uppercase tracking-tighter">
+                    {c.type} {c.label_zh && `• ${c.label_zh}`}
+                  </div>
+                  <div className="text-[#E6F1FF] font-medium">{c.value_zh}</div>
+                  <div className="text-[#8892B0] text-xs italic">{c.value_en}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => handleEdit(c)} className="p-2 text-[#FFB300] hover:bg-[#FFB300]/10 rounded-md transition-colors">
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button onClick={() => handleDelete(c.id)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-md transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {contacts.length === 0 && !loading && (
+          <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-xl text-[#8892B0]">
+            {t('admin.no_contacts', 'No contact points configured. Global settings will be used in Footer.')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardOverview() {
+  const { t } = useTranslation();
+  const [stats, setStats] = useState({ users: 0, products: 0, messages: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [usersSnap, productsSnap, messagesSnap] = await Promise.all([
+          getDocs(collection(db, 'users')),
+          getDocs(collection(db, 'products')),
+          getDocs(collection(db, 'messages'))
+        ]);
+        setStats({
+          users: usersSnap.size,
+          products: productsSnap.size,
+          messages: messagesSnap.size
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'dashboard_stats');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  if (loading) return <div className="text-[#8892B0]">{t('admin.loading_stats')}</div>;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+        <div className="text-[#8892B0] text-sm uppercase tracking-wider mb-2">{t('admin.total_users')}</div>
+        <div className="text-3xl font-bold text-[#FFB300]">{stats.users}</div>
+      </div>
+      <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+        <div className="text-[#8892B0] text-sm uppercase tracking-wider mb-2">{t('admin.total_products')}</div>
+        <div className="text-3xl font-bold text-[#FFB300]">{stats.products}</div>
+      </div>
+      <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+        <div className="text-[#8892B0] text-sm uppercase tracking-wider mb-2">{t('admin.unread_messages')}</div>
+        <div className="text-3xl font-bold text-[#FFB300]">{stats.messages}</div>
+      </div>
+    </div>
+  );
+}
+
+function CategoriesManager() {
+  const { t } = useTranslation();
+  const [categories, setCategories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState({ name: '', description: '', order: '0' });
+
+  const fetchCategories = async () => {
+    setLoading(true);
+    try {
+      const q = collection(db, 'categories');
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort by order
+      data.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+      setCategories(data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'categories');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const data = {
+        name: newCategory.name,
+        description: newCategory.description,
+        order: parseInt(newCategory.order),
+        updatedAt: new Date().toISOString()
+      };
+
+      if (editingId) {
+        await setDoc(doc(db, 'categories', editingId), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'categories'), {
+          ...data,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      setIsAdding(false);
+      setEditingId(null);
+      setNewCategory({ name: '', description: '', order: '0' });
+      fetchCategories();
+    } catch (error) {
+      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'categories');
+    }
+  };
+
+  const handleEdit = (category: any) => {
+    setEditingId(category.id);
+    setNewCategory({
+      name: category.name || '',
+      description: category.description || '',
+      order: (category.order || 0).toString()
+    });
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(t('admin.confirm_delete_category', { name }))) {
+      try {
+        await deleteDoc(doc(db, 'categories', id));
+        fetchCategories();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'categories');
+      }
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.categories_management', 'Categories Management')}</h2>
+        <button 
+          onClick={() => { setIsAdding(true); setEditingId(null); setNewCategory({ name: '', description: '', order: '0' }); }}
+          className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_category', 'Add Category')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <div className="mb-8 bg-[#0A192F] p-6 rounded-lg border border-white/5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-[#E6F1FF]">{editingId ? t('admin.edit_category', 'Edit Category') : t('admin.add_new_category', 'Add New Category')}</h3>
+            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="text-[#8892B0] hover:text-[#E6F1FF]">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.category_name', 'Category Name')}</label>
+                <input required type="text" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.description', 'Description')}</label>
+                <textarea value={newCategory.description} onChange={e => setNewCategory({...newCategory, description: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 h-24" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.display_order', 'Display Order')}</label>
+                <input type="number" value={newCategory.order} onChange={e => setNewCategory({...newCategory, order: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button type="submit" className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium">{t('admin.save_category', 'Save Category')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {loading ? <p className="text-[#8892B0]">{t('admin.loading')}</p> : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-white/10">
+            <thead className="bg-[#0A192F]">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.category_name', 'Category Name')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.description', 'Description')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.order', 'Order')}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="bg-[#112240] divide-y divide-white/5">
+              {categories.map(category => (
+                <tr key={category.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#E6F1FF]">{category.name}</td>
+                  <td className="px-6 py-4 text-sm text-[#8892B0] max-w-xs truncate">{category.description || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{category.order || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                    <button onClick={() => handleEdit(category)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(category.id, category.name)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+              {categories.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_categories_found', 'No categories found')}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProductsManager() {
+  const { t } = useTranslation();
+  const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newProduct, setNewProduct] = useState({
+    sku: '', name: '', categoryId: '', price: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: ''
+  });
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [productsSnap, categoriesSnap] = await Promise.all([
+        getDocs(collection(db, 'products')),
+        getDocs(collection(db, 'categories'))
+      ]);
+      setProducts(productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setCategories(categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'products_data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const selectedCategory = categories.find(c => c.id === newProduct.categoryId);
+      const productData = {
+        sku: newProduct.sku,
+        name: newProduct.name,
+        categoryId: newProduct.categoryId,
+        categoryName: selectedCategory?.name || '',
+        price: parseFloat(newProduct.price) || 0,
+        techSpecs: {
+          material: newProduct.material,
+          weight: newProduct.weight,
+          compatibility: newProduct.compatibility
+        },
+        imageUrls: newProduct.imageUrls.filter(url => url !== ''),
+        videoUrl: newProduct.videoUrl,
+        catalogUrl: newProduct.catalogUrl,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (editingId) {
+        await setDoc(doc(db, 'products', editingId), productData, { merge: true });
+      } else {
+        await addDoc(collection(db, 'products'), {
+          ...productData,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      setIsAdding(false);
+      setEditingId(null);
+      setNewProduct({ sku: '', name: '', categoryId: '', price: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: '' });
+      fetchData();
+    } catch (error: any) {
+      console.error("Error saving product:", error);
+      alert(`${t('admin.save_failed')}: ${error.message}`);
+      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'products');
+    }
+  };
+
+  const handleEditClick = (product: any) => {
+    setEditingId(product.id);
+    const imageUrls = [...(product.imageUrls || [])];
+    while (imageUrls.length < 4) imageUrls.push('');
+    
+    setNewProduct({
+      sku: product.sku || '',
+      name: product.name || '',
+      categoryId: product.categoryId || '',
+      price: product.price?.toString() || '',
+      imageUrls: imageUrls.slice(0, 4),
+      videoUrl: product.videoUrl || '',
+      catalogUrl: product.catalogUrl || '',
+      material: product.techSpecs?.material || '',
+      weight: product.techSpecs?.weight || '',
+      compatibility: product.techSpecs?.compatibility || ''
+    });
+    setIsAdding(true);
+  };
+
+  const handleSeedProducts = async () => {
+    // Find or create category IDs for the seed data
+    const getCategoryId = (name: string) => {
+      const cat = categories.find(c => c.name === name);
+      return cat?.id || 'default_category';
+    };
+
+    const sampleProducts = [
+      {
+        sku: 'LED-H4-001',
+        name: 'LED Headlight H4 Series',
+        categoryId: getCategoryId('Lighting System'),
+        categoryName: 'Lighting System',
+        price: 45.99,
+        techSpecs: {
+          material: 'Aviation Aluminum',
+          weight: '0.5kg',
+          compatibility: 'Universal H4'
+        },
+        imageUrls: ['https://picsum.photos/seed/ledh4/400/300'],
+        createdAt: new Date().toISOString()
+      },
+      {
+        sku: 'BRK-CER-002',
+        name: 'Ceramic Brake Pads (Front)',
+        categoryId: getCategoryId('Braking System'),
+        categoryName: 'Braking System',
+        price: 89.50,
+        techSpecs: {
+          material: 'Ceramic Composite',
+          weight: '1.2kg',
+          compatibility: 'Toyota Camry 2018-2023'
+        },
+        imageUrls: ['https://picsum.photos/seed/brake/400/300'],
+        createdAt: new Date().toISOString()
+      },
+      {
+        sku: 'FLT-OIL-003',
+        name: 'High-Efficiency Oil Filter',
+        categoryId: getCategoryId('Filters'),
+        categoryName: 'Filters',
+        price: 12.99,
+        techSpecs: {
+          material: 'Synthetic Fiber',
+          weight: '0.3kg',
+          compatibility: 'Honda Civic/Accord'
+        },
+        imageUrls: ['https://picsum.photos/seed/filter/400/300'],
+        createdAt: new Date().toISOString()
+      },
+      {
+        sku: 'EXT-MIR-004',
+        name: 'Side Mirror Assembly (Left)',
+        categoryId: getCategoryId('Exterior Parts'),
+        categoryName: 'Exterior Parts',
+        price: 120.00,
+        techSpecs: {
+          material: 'ABS Plastic + Glass',
+          weight: '2.5kg',
+          compatibility: 'BMW 3 Series G20'
+        },
+        imageUrls: ['https://picsum.photos/seed/mirror/400/300'],
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    try {
+      // First ensure categories exist if we are using the 'default_category' fallback
+      const categoryNames = ['Lighting System', 'Braking System', 'Filters', 'Exterior Parts'];
+      for (const catName of categoryNames) {
+        if (!categories.find(c => c.name === catName)) {
+          await addDoc(collection(db, 'categories'), {
+            name: catName,
+            description: `Auto parts for ${catName}`,
+            order: 0,
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
+      
+      // Refresh categories to get the right IDs if we just added them
+      const catsSnap = await getDocs(collection(db, 'categories'));
+      const updatedCats = catsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      for (const p of sampleProducts) {
+        // Re-find category ID from the freshly fetched list
+        const cat = updatedCats.find((c: any) => c.name === p.categoryName);
+        const finalProduct = {
+          ...p,
+          categoryId: cat?.id || 'unknown'
+        };
+        await addDoc(collection(db, 'products'), finalProduct);
+      }
+      alert(t('admin.seed_success'));
+      fetchData();
+    } catch (error: any) {
+      console.error("Error seeding products:", error);
+      alert(t('admin.seed_failed') + ": " + (error.message || "Unknown error"));
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (window.confirm(t('admin.confirm_delete_product'))) {
+      try {
+        const product = products.find(p => p.id === id);
+        // Handle plural imageUrls
+        if (product?.imageUrls && Array.isArray(product.imageUrls)) {
+          for (const url of product.imageUrls) {
+            await deleteFileFromServer(url);
+          }
+        }
+        // Handle legacy singular imageUrl
+        if (product?.imageUrl) {
+          await deleteFileFromServer(product.imageUrl);
+        }
+        
+        await deleteDoc(doc(db, 'products', id));
+        fetchData();
+        alert(t('admin.delete_success', 'Deleted successfully'));
+      } catch (error) {
+        console.error("Error deleting product:", error);
+        handleFirestoreError(error, OperationType.DELETE, 'products');
+      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const MAX_FILE_SIZE = 15 * 1024 * 1024;
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB). ${t('admin.content_too_large')}`);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch(apiUrl('/api/upload'), {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = `Upload failed (${response.status})`;
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.error || errorMessage;
+          } catch (e) {
+            console.error('Non-JSON error response:', text.substring(0, 500));
+            if (response.status === 413) errorMessage = t('admin.file_too_large', 'File too large');
+          }
+          throw new Error(errorMessage);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Invalid content type:', contentType, 'Body:', text.substring(0, 500));
+          throw new Error('Server returned invalid response format (Expected JSON)');
+        }
+
+        const data = await response.json();
+        const newUrls = [...newProduct.imageUrls];
+        newUrls[index] = data.url;
+        setNewProduct({ ...newProduct, imageUrls: newUrls });
+      } catch (error: any) {
+        console.error('Upload error:', error);
+        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+      }
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.products_management')}</h2>
+        <div className="flex space-x-2">
+          <button 
+            onClick={handleSeedProducts}
+            className="flex items-center px-4 py-2 bg-[#112240] text-[#FFB300] border border-[#FFB300]/20 rounded-md hover:bg-[#0A192F] text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4 mr-2" /> {t('admin.seed_products')}
+          </button>
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4 mr-2" /> {t('admin.add_product')}
+          </button>
+        </div>
+      </div>
+
+      {isAdding && (
+        <div className="mb-8 bg-[#0A192F] p-6 rounded-lg border border-white/5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-[#E6F1FF]">{editingId ? t('admin.edit_product') : t('admin.add_new_product')}</h3>
+            <button onClick={() => { setIsAdding(false); setEditingId(null); }} className="text-[#8892B0] hover:text-[#E6F1FF]">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <form onSubmit={handleAddProduct} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.sku')}</label>
+                <input required type="text" value={newProduct.sku} onChange={e => setNewProduct({...newProduct, sku: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.name')}</label>
+                <input required type="text" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.category')}</label>
+                <select required value={newProduct.categoryId} onChange={e => setNewProduct({...newProduct, categoryId: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50">
+                  <option value="">{t('admin.select_category')}</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.price')}</label>
+                <input required type="number" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.material')}</label>
+                <input type="text" value={newProduct.material} onChange={e => setNewProduct({...newProduct, material: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.weight')}</label>
+                <input type="text" value={newProduct.weight} onChange={e => setNewProduct({...newProduct, weight: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.compatibility')}</label>
+                <input type="text" value={newProduct.compatibility} onChange={e => setNewProduct({...newProduct, compatibility: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.video_upload', 'Video Upload')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
+                <div className="mt-2">
+                  {newProduct.videoUrl ? (
+                    <div className="flex items-center space-x-4 p-4 bg-[#112240]/50 border-2 border-white/10 rounded-lg">
+                      <div className="w-32 h-20 bg-black rounded overflow-hidden flex items-center justify-center">
+                        <Video className="w-8 h-8 text-[#FFB300]" />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <p className="text-xs text-[#8892B0] truncate">{newProduct.videoUrl}</p>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={async () => {
+                          if (window.confirm(t('admin.confirm_delete'))) {
+                            await deleteFileFromServer(newProduct.videoUrl);
+                            setNewProduct({ ...newProduct, videoUrl: '' });
+                          }
+                        }}
+                        className="text-red-500 hover:text-red-400 p-2"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex items-center justify-center space-x-3 p-4 bg-[#112240]/50 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 transition-all">
+                      <Video className="w-6 h-6 text-[#8892B0]" />
+                      <span className="text-sm text-[#8892B0]">{t('admin.upload_video', 'Upload MP4 Video')}</span>
+                      <input 
+                        type="file" 
+                        className="sr-only" 
+                        accept="video/mp4"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 15 * 1024 * 1024) {
+                              alert(t('admin.file_too_large'));
+                              return;
+                            }
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                              const res = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+                              if (!res.ok) throw new Error('Upload failed');
+                              const data = await res.json();
+                              setNewProduct({ ...newProduct, videoUrl: data.url });
+                            } catch (error) {
+                              alert(t('admin.upload_failed'));
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.product_catalog_file', 'Product Catalog/Manual (PDF)')}</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <FileDown className="h-4 w-4 text-[#8892B0]" />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={newProduct.catalogUrl} 
+                      onChange={e => setNewProduct({...newProduct, catalogUrl: e.target.value})} 
+                      placeholder="https://example.com/manual.pdf"
+                      className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                    />
+                  </div>
+                  <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                    <Plus className="w-4 h-4 mr-1" />
+                    <span className="text-xs">{t('admin.select_file')}</span>
+                    <input 
+                      type="file" 
+                      className="sr-only" 
+                      accept="application/pdf" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 15 * 1024 * 1024) {
+                            alert(t('admin.file_too_large'));
+                            return;
+                          }
+                          const formData = new FormData();
+                          formData.append('file', file);
+                          try {
+                            const res = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+                            if (!res.ok) throw new Error('Upload failed');
+                            const data = await res.json();
+                            setNewProduct({ ...newProduct, catalogUrl: data.url });
+                          } catch (error) {
+                            alert(t('admin.upload_failed'));
+                          }
+                        }
+                      }} 
+                    />
+                  </label>
+                  {newProduct.catalogUrl && (
+                    <button 
+                      type="button" 
+                      onClick={async () => { 
+                        await deleteFileFromServer(newProduct.catalogUrl); 
+                        setNewProduct({...newProduct, catalogUrl: ''}); 
+                      }} 
+                      className="px-3 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.product_images')} (最多4张, {t('admin.image_size_hint')})</label>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  {[0, 1, 2, 3].map((index) => (
+                    <div key={index} className="relative group aspect-square border-2 border-white/10 border-dashed rounded-lg hover:border-[#FFB300]/50 transition-all overflow-hidden flex items-center justify-center bg-[#112240]/50">
+                      {newProduct.imageUrls[index] ? (
+                        <>
+                          <img src={newProduct.imageUrls[index]} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" />
+                          <button 
+                            type="button"
+                            onClick={async () => {
+                              const urlToDelete = newProduct.imageUrls[index];
+                              await deleteFileFromServer(urlToDelete);
+                              const newUrls = [...newProduct.imageUrls];
+                              newUrls[index] = '';
+                              setNewProduct({ ...newProduct, imageUrls: newUrls });
+                            }}
+                            className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center space-y-2">
+                          <Plus className="w-8 h-8 text-[#8892B0] group-hover:text-[#FFB300] transition-colors" />
+                          <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
+                          <input 
+                            type="file" 
+                            className="sr-only" 
+                            accept="image/*"
+                            onChange={(e) => handleFileChange(e, index)}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button type="submit" className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium">{t('admin.save_product')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+      
+      {loading ? <p className="text-[#8892B0]">{t('admin.loading')}</p> : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-white/10">
+            <thead className="bg-[#0A192F]">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.sku')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.name')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.category')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.price')}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="bg-[#112240] divide-y divide-white/5">
+              {products.map(product => (
+                <tr key={product.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#E6F1FF]">{product.sku}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{product.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{product.categoryName || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">${product.price}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                    <button onClick={() => handleEditClick(product)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteProduct(product.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+              {products.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_products_found')}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RegionsManager() {
+  const { t } = useTranslation();
+  const [regions, setRegions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newRegion, setNewRegion] = useState({ name: '', lat: '', lng: '', pulseStyle: 'default' });
+
+  const fetchRegions = async () => {
+    setLoading(true);
+    try {
+      const q = collection(db, 'salesRegions');
+      const snapshot = await getDocs(q);
+      setRegions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchRegions(); }, []);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'salesRegions'), {
+        ...newRegion,
+        lat: parseFloat(newRegion.lat),
+        lng: parseFloat(newRegion.lng)
+      });
+      setIsAdding(false);
+      setNewRegion({ name: '', lat: '', lng: '', pulseStyle: 'default' });
+      fetchRegions();
+    } catch (error) {
+      alert(t('admin.add_failed'));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm(t('admin.confirm_delete'))) {
+      await deleteDoc(doc(db, 'salesRegions', id));
+      fetchRegions();
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.sales_regions')}</h2>
+        <button onClick={() => setIsAdding(true)} className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium">
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_region')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <form onSubmit={handleAdd} className="mb-8 bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input required placeholder={t('admin.region_name')} value={newRegion.name} onChange={e => setNewRegion({...newRegion, name: e.target.value})} className="px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10" />
+            <input required type="number" step="0.0001" placeholder={t('admin.latitude')} value={newRegion.lat} onChange={e => setNewRegion({...newRegion, lat: e.target.value})} className="px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10" />
+            <input required type="number" step="0.0001" placeholder={t('admin.longitude')} value={newRegion.lng} onChange={e => setNewRegion({...newRegion, lng: e.target.value})} className="px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10" />
+            <select value={newRegion.pulseStyle} onChange={e => setNewRegion({...newRegion, pulseStyle: e.target.value})} className="px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10">
+              <option value="default">{t('admin.default_pulse')}</option>
+              <option value="strong">{t('admin.strong_pulse')}</option>
+              <option value="slow">{t('admin.slow_pulse')}</option>
+            </select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 text-[#8892B0]">{t('admin.cancel')}</button>
+            <button type="submit" className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md">{t('admin.save')}</button>
+          </div>
+        </form>
+      )}
+
+      <div className="space-y-2">
+        {regions.map(r => (
+          <div key={r.id} className="flex items-center justify-between p-4 bg-[#0A192F] rounded-lg border border-white/5">
+            <div>
+              <div className="text-[#E6F1FF] font-medium">{r.name}</div>
+              <div className="text-[#8892B0] text-xs">{r.lat}, {r.lng}</div>
+            </div>
+            <button onClick={() => handleDelete(r.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessagesManager() {
+  const { t } = useTranslation();
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'messages');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleStatusChange = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'new' ? 'processed' : 'new';
+      await setDoc(doc(db, 'messages', id), { status: newStatus }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'messages');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm(t('admin.confirm_delete_message', 'Are you sure you want to delete this message?'))) {
+      try {
+        await deleteDoc(doc(db, 'messages', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'messages');
+      }
+    }
+  };
+
+  const handleReply = (email: string, name: string) => {
+    const subject = encodeURIComponent(t('admin.reply_subject', 'Reply to your inquiry - Vida Auto'));
+    const body = encodeURIComponent(t('admin.reply_greeting', { name, defaultValue: `Hello ${name},` }));
+    window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+  };
+
+  if (loading) return <div className="text-[#8892B0] p-8 text-center">{t('admin.loading')}</div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.messages_management', 'Message Board Management')}</h2>
+        <div className="text-sm text-[#8892B0]">
+          {messages.filter(m => m.status === 'new').length} {t('admin.unread')} / {messages.length} {t('admin.total')}
+        </div>
+      </div>
+      
+      <div className="space-y-4">
+        {messages.map(m => (
+          <div key={m.id} className={`p-5 rounded-xl border transition-all ${m.status === 'new' ? 'bg-[#1a2c4e] border-[#FFB300]/30' : 'bg-[#0A192F] border-white/5'}`}>
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${m.status === 'new' ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#112240] text-[#8892B0]'}`}>
+                  {m.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-bold text-[#E6F1FF] flex items-center gap-2">
+                    {m.name}
+                    {m.status === 'new' && <span className="w-2 h-2 bg-[#FFB300] rounded-full animate-pulse"></span>}
+                  </div>
+                  <div className="text-[#8892B0] text-sm flex items-center gap-1">
+                    <Mail className="w-3 h-3" />
+                    {m.email}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-[11px] text-[#8892B0] font-mono mr-2">
+                  {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
+                </div>
+                <button 
+                  onClick={() => handleStatusChange(m.id, m.status)}
+                  className={`p-2 rounded-lg transition-colors ${m.status === 'new' ? 'bg-[#FFB300]/10 text-[#FFB300] hover:bg-[#FFB300]/20' : 'bg-green-500/10 text-green-400'}`}
+                  title={m.status === 'new' ? t('admin.mark_processed') : t('admin.mark_new')}
+                >
+                  <CheckCircle className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => handleReply(m.email, m.name)}
+                  className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"
+                  title={t('admin.reply')}
+                >
+                  <Mail className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => handleDelete(m.id)}
+                  className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-colors"
+                  title={t('admin.delete')}
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="bg-[#112240] p-4 rounded-lg text-[#E6F1FF]/90 text-sm leading-relaxed whitespace-pre-wrap">
+              {m.message}
+            </div>
+            
+            {m.status === 'processed' && (
+              <div className="mt-3 flex items-center gap-2 text-[10px] text-green-400 uppercase tracking-widest font-bold">
+                <CheckCircle className="w-3 h-3" />
+                {t('admin.processed_status', 'Processed / Replied')}
+              </div>
+            )}
+          </div>
+        ))}
+        
+        {messages.length === 0 && (
+          <div className="text-center py-20 bg-[#0A192F] rounded-xl border border-dashed border-white/10">
+            <MessageSquare className="w-12 h-12 text-[#112240] mx-auto mb-4" />
+            <p className="text-[#8892B0]">{t('admin.no_messages_found')}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TranslationsManager() {
+  const { t } = useTranslation();
+  const [translations, setTranslations] = useState<any[]>([]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ key: '', zh: '', en: '' });
+
+  useEffect(() => {
+    const q = query(collection(db, 'translations'), orderBy('key'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTranslations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'translations_manager');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await setDoc(doc(db, 'translations', editingId), formData);
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'translations'), formData);
+        setIsAdding(false);
+      }
+      setFormData({ key: '', zh: '', en: '' });
+    } catch (error) {
+      console.error("Error saving translation:", error);
+      alert(t('common.submit_failed'));
+    }
+  };
+
+  const handleEdit = (trans: any) => {
+    setEditingId(trans.id);
+    setFormData({ key: trans.key, zh: trans.zh || '', en: trans.en || '' });
+    setIsAdding(false);
+  };
+
+  const handleDelete = async (id: string, key: string) => {
+    if (window.confirm(t('admin.confirm_delete_message', { name: key }))) {
+      try {
+        await deleteDoc(doc(db, 'translations', id));
+      } catch (error) {
+        alert("Delete failed");
+      }
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.translations_management')}</h2>
+        <button 
+          onClick={() => { setIsAdding(true); setEditingId(null); setFormData({ key: '', zh: '', en: '' }); }} 
+          className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium"
+        >
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_translation')}
+        </button>
+      </div>
+
+      {(isAdding || editingId) && (
+        <form onSubmit={handleSubmit} className="mb-8 bg-[#0A192F] p-6 rounded-lg border border-[#FFB300]/30 space-y-4">
+          <h3 className="text-sm font-bold text-[#FFB300] uppercase tracking-wider">{editingId ? t('admin.edit_product') : t('admin.add_translation')}</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.translation_key')}</label>
+              <input 
+                required 
+                placeholder="e.g. home.title" 
+                value={formData.key} 
+                onChange={e => setFormData({...formData, key: e.target.value})} 
+                className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10" 
+              />
+              <p className="text-[10px] text-[#8892B0] mt-1 italic">Use dot notation: category.field (e.g. home.must_have)</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.zh_content')}</label>
+                <textarea 
+                  rows={3}
+                  placeholder="中文内容..." 
+                  value={formData.zh} 
+                  onChange={e => setFormData({...formData, zh: e.target.value})} 
+                  className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 resize-none" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.en_content')}</label>
+                <textarea 
+                  rows={3}
+                  placeholder="English Content..." 
+                  value={formData.en} 
+                  onChange={e => setFormData({...formData, en: e.target.value})} 
+                  className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 resize-none" 
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="px-4 py-2 text-[#8892B0] text-sm">{t('admin.cancel')}</button>
+            <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-bold shadow-lg shadow-[#FFB300]/10">{t('admin.save')}</button>
+          </div>
+        </form>
+      )}
+
+      <div className="grid grid-cols-1 gap-3">
+        {translations.map(item => (
+          <div key={item.id} className="p-4 bg-[#0A192F] rounded-lg border border-white/5 group hover:border-white/10 transition-colors">
+            <div className="flex justify-between items-start mb-3">
+              <div className="text-[#FFB300] font-mono text-xs font-semibold px-2 py-0.5 bg-[#FFB300]/10 rounded border border-[#FFB300]/20">{item.key}</div>
+              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => handleEdit(item)} className="p-1.5 text-blue-400 hover:bg-blue-400/10 rounded-md transition-colors"><Edit className="w-4 h-4" /></button>
+                <button onClick={() => handleDelete(item.id, item.key)} className="p-1.5 text-red-400 hover:bg-red-400/10 rounded-md transition-colors"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-wider text-[#8892B0] font-bold">ZH</div>
+                <div className="text-[#E6F1FF] bg-[#112240] p-2 rounded border border-white/5">{item.zh || '---'}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-wider text-[#8892B0] font-bold">EN</div>
+                <div className="text-[#8892B0] bg-[#112240] p-2 rounded border border-white/5 italic">{item.en || '---'}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+        {translations.length === 0 && (
+          <div className="text-center py-12 bg-[#0A192F] rounded-lg border border-dashed border-white/10">
+            <p className="text-[#8892B0]">{t('admin.no_translations_found', 'No translations found. Add one to override static text.')}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuickTranslationEditor() {
+  const { t, i18n } = useTranslation();
+  const commonKeys = [
+    { key: 'home.must_have', label: 'Landing Page Section Title (Products)' },
+    { key: 'home.search_title', label: 'Search Section Title' },
+    { key: 'home.contact_title', label: 'Contact Section Title' },
+    { key: 'footer.follow_us', label: 'Footer "Follow Us" Text' },
+    { key: 'about.company_name', label: 'Company Name' }
+  ];
+
+  const [translations, setTranslations] = useState<any[]>([]);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ zh: '', en: '' });
+
+  useEffect(() => {
+    const q = collection(db, 'translations');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTranslations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'translations_quick');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleEdit = (key: string) => {
+    const existing = translations.find(t => t.key === key);
+    setEditingKey(key);
+    setFormData({
+      zh: existing?.zh || i18n.t(key, { lng: 'zh' }) || '',
+      en: existing?.en || i18n.t(key, { lng: 'en' }) || ''
+    });
+  };
+
+  const handleSave = async () => {
+    if (!editingKey) return;
+    try {
+      const existing = translations.find(t => t.key === editingKey);
+      if (existing) {
+        await setDoc(doc(db, 'translations', existing.id), { ...existing, ...formData });
+      } else {
+        await addDoc(collection(db, 'translations'), { key: editingKey, ...formData });
+      }
+      setEditingKey(null);
+    } catch (error) {
+      alert("Failed to save text");
+    }
+  };
+
+  return (
+    <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4 mb-8">
+      <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+        <Edit className="w-5 h-5 mr-2" /> {t('admin.quick_text_edit', 'Quick Text Editing (Home Page Headlines)')}
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {commonKeys.map(item => {
+          const trans = translations.find(t => t.key === item.key);
+          return (
+            <div key={item.key} className="flex items-center justify-between p-4 bg-[#112240] rounded-lg border border-white/5 gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-[#8892B0] font-bold uppercase tracking-wider mb-1">{item.label}</div>
+                <div className="text-sm text-[#E6F1FF] truncate">
+                  <span className="text-[#FFB300] mr-2 font-mono">ZH:</span> 
+                  {trans?.zh || i18n.t(item.key, { lng: 'zh' })}
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => handleEdit(item.key)}
+                className="px-3 py-1.5 bg-[#FFB300] text-[#0A192F] rounded hover:bg-[#FFCA28] text-xs font-bold transition-all shrink-0"
+              >
+                {t('admin.edit', 'Edit')}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {editingKey && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#0A192F] w-full max-w-md p-6 rounded-xl border border-[#FFB300]/30 shadow-2xl">
+            <h4 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+              <Edit className="w-5 h-5 mr-2" /> {editingKey}
+            </h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1 font-bold">{t('admin.zh_content', 'CHINESE (ZH)')}</label>
+                <textarea 
+                  value={formData.zh} 
+                  onChange={e => setFormData({...formData, zh: e.target.value})} 
+                  className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1 font-bold">{t('admin.en_content', 'ENGLISH (EN)')}</label>
+                <textarea 
+                  value={formData.en} 
+                  onChange={e => setFormData({...formData, en: e.target.value})} 
+                  className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm italic"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button type="button" onClick={() => setEditingKey(null)} className="px-4 py-2 text-[#8892B0] text-sm font-medium hover:text-white transition-colors">{t('admin.cancel', 'Cancel')}</button>
+              <button type="button" onClick={handleSave} className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-bold hover:bg-[#FFCA28] transition-all">{t('admin.save_changes', 'Save Changes')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [products, setProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'products'));
+        setProducts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Error fetching products for settings:", error);
+      }
+    };
+    fetchProducts();
+  }, []);
+  useEffect(() => {
+    if (siteSettings) {
+      setLogoUrl(siteSettings.logoUrl || '');
+      setStatsBgUrl(siteSettings.statsBgUrl || '');
+      setStatsVideoUrl(siteSettings.statsVideoUrl || '');
+      setStoryVideoUrl(siteSettings.storyVideoUrl || '');
+      setStoryBgUrl(siteSettings.storyBgUrl || '');
+      setHeroVideoUrl(siteSettings.heroVideoUrl || '');
+      setHeroBgUrl(siteSettings.heroBgUrl || '');
+      setAddress(siteSettings.address || '');
+      setPhone(siteSettings.phone || '');
+      setEmail(siteSettings.email || '');
+      setWhatsappQrUrl(siteSettings.whatsappQrUrl || '');
+      setWhatsappLink(siteSettings.whatsappLink || '');
+      setStarProductId(siteSettings.starProductId || '');
+      setStarProductTitle(siteSettings.starProductTitle || '');
+      setGlobeTitle(siteSettings.globeTitle || '');
+      setGlobeSubtitle(siteSettings.globeSubtitle || '');
+      setGlobeBottomTitle(siteSettings.globeBottomTitle || '');
+      setGlobeBottomSubtitle(siteSettings.globeBottomSubtitle || '');
+      setCatalogUrl(siteSettings.catalogUrl || '');
+      setCatalogTitle(siteSettings.catalogTitle || '');
+      setFacebook(siteSettings.facebook || '');
+      setTwitter(siteSettings.twitter || '');
+      setInstagram(siteSettings.instagram || '');
+      setLinkedin(siteSettings.linkedin || '');
+      setFeaturesLayout(siteSettings.featuresLayout || 'classic');
+    }
+  }, [siteSettings]);
+
+  const [logoUrl, setLogoUrl] = useState(siteSettings?.logoUrl || '');
+  const [statsBgUrl, setStatsBgUrl] = useState(siteSettings?.statsBgUrl || '');
+  const [statsVideoUrl, setStatsVideoUrl] = useState(siteSettings?.statsVideoUrl || '');
+  const [storyVideoUrl, setStoryVideoUrl] = useState(siteSettings?.storyVideoUrl || '');
+  const [storyBgUrl, setStoryBgUrl] = useState(siteSettings?.storyBgUrl || '');
+  const [heroVideoUrl, setHeroVideoUrl] = useState(siteSettings?.heroVideoUrl || '');
+  const [heroBgUrl, setHeroBgUrl] = useState(siteSettings?.heroBgUrl || '');
+  const [address, setAddress] = useState(siteSettings?.address || '');
+  const [phone, setPhone] = useState(siteSettings?.phone || '');
+  const [email, setEmail] = useState(siteSettings?.email || '');
+  const [whatsappQrUrl, setWhatsappQrUrl] = useState(siteSettings?.whatsappQrUrl || '');
+  const [whatsappLink, setWhatsappLink] = useState(siteSettings?.whatsappLink || '');
+  const [starProductId, setStarProductId] = useState(siteSettings?.starProductId || '');
+  const [starProductTitle, setStarProductTitle] = useState(siteSettings?.starProductTitle || '');
+  const [globeTitle, setGlobeTitle] = useState(siteSettings?.globeTitle || '');
+  const [globeSubtitle, setGlobeSubtitle] = useState(siteSettings?.globeSubtitle || '');
+  const [globeBottomTitle, setGlobeBottomTitle] = useState(siteSettings?.globeBottomTitle || '');
+  const [globeBottomSubtitle, setGlobeBottomSubtitle] = useState(siteSettings?.globeBottomSubtitle || '');
+  const [catalogUrl, setCatalogUrl] = useState(siteSettings?.catalogUrl || '');
+  const [catalogTitle, setCatalogTitle] = useState(siteSettings?.catalogTitle || '');
+  const [facebook, setFacebook] = useState(siteSettings?.facebook || '');
+  const [twitter, setTwitter] = useState(siteSettings?.twitter || '');
+  const [instagram, setInstagram] = useState(siteSettings?.instagram || '');
+  const [linkedin, setLinkedin] = useState(siteSettings?.linkedin || '');
+  const [featuresLayout, setFeaturesLayout] = useState(siteSettings?.featuresLayout || 'classic');
+  const [statsRegions, setStatsRegions] = useState(siteSettings?.statsRegions || '45+');
+  const [statsSkus, setStatsSkus] = useState(siteSettings?.statsSkus || '12.5k');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (url: string) => void, currentUrl?: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const MAX_FILE_SIZE = 15 * 1024 * 1024; 
+      
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB)。${t('admin.content_too_large')}`);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch(apiUrl('/api/upload'), {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = `Upload failed (${response.status})`;
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.error || errorMessage;
+          } catch (e) {
+            console.error('Non-JSON error response in SettingsManager:', text.substring(0, 500));
+            if (response.status === 413) errorMessage = t('admin.file_too_large', 'File too large');
+          }
+          throw new Error(errorMessage);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Invalid content type in SettingsManager:', contentType, 'Body:', text.substring(0, 500));
+          throw new Error('Server returned invalid response format (Expected JSON)');
+        }
+
+        const data = await response.json();
+        
+        // Delete old file if it exists
+        if (currentUrl) {
+          await deleteFileFromServer(currentUrl);
+        }
+        
+        setter(data.url);
+      } catch (error: any) {
+        console.error('Upload error in SettingsManager:', error);
+        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+      }
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const newSettings = { 
+        ...siteSettings,
+        logoUrl, statsBgUrl, statsVideoUrl, storyVideoUrl, storyBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
+        starProductId, starProductTitle,
+        globeTitle, globeSubtitle, globeBottomTitle, globeBottomSubtitle,
+        catalogUrl, catalogTitle,
+        facebook, twitter, instagram, linkedin,
+        featuresLayout,
+        statsRegions,
+        statsSkus,
+        updatedAt: new Date().toISOString(),
+        key: 'global'
+      };
+      await setDoc(doc(db, 'settings', 'global'), newSettings, { merge: true });
+      setSiteSettings(newSettings);
+      alert(t('admin.settings_saved'));
+    } catch (error: any) {
+      console.error("Error saving settings:", error);
+      alert(`${t('admin.save_failed')}: ${error.message}`);
+      handleFirestoreError(error, OperationType.WRITE, 'settings/global');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.site_settings')}</h2>
+      
+      {/* Quick Text Editor */}
+      <QuickTranslationEditor />
+      
+      <form onSubmit={handleSave} className="space-y-8">
+        {/* Contact Info */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Settings className="w-5 h-5 mr-2" /> {t('admin.contact_settings', 'Contact Information')}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.address')}</label>
+              <input type="text" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.phone')}</label>
+              <input type="text" value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.email')}</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.star_product_settings', 'Star Product Settings')}</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.star_product_title', 'Display Title')}</label>
+                  <input 
+                    type="text" 
+                    value={starProductTitle} 
+                    onChange={e => setStarProductTitle(e.target.value)} 
+                    placeholder={t('home.star_product')}
+                    className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.select_product', 'Select Product')}</label>
+                  <select 
+                    value={starProductId} 
+                    onChange={e => setStarProductId(e.target.value)}
+                    className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                  >
+                    <option value="">{t('admin.no_selection', 'No Selection')}</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+            
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.globe_settings', 'Globe Section Titles')}</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.globe_title', 'Top Title')}</label>
+                  <input type="text" value={globeTitle} onChange={e => setGlobeTitle(e.target.value)} placeholder={t('home.globe_title')} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.globe_subtitle', 'Top Subtitle')}</label>
+                  <input type="text" value={globeSubtitle} onChange={e => setGlobeSubtitle(e.target.value)} placeholder={t('home.globe_subtitle')} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.globe_bottom_title', 'Bottom Title')}</label>
+                  <input type="text" value={globeBottomTitle} onChange={e => setGlobeBottomTitle(e.target.value)} placeholder={t('home.current_region')} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.globe_bottom_subtitle', 'Bottom Subtitle')}</label>
+                  <input type="text" value={globeBottomSubtitle} onChange={e => setGlobeBottomSubtitle(e.target.value)} placeholder={t('home.global_network')} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('home.export_regions')}</label>
+                  <input type="text" value={statsRegions} onChange={e => setStatsRegions(e.target.value)} placeholder="45+" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('home.active_skus')}</label>
+                  <input type="text" value={statsSkus} onChange={e => setStatsSkus(e.target.value)} placeholder="12.5k" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                </div>
+              </div>
+            </div>
+            
+            {/* Catalog Download Section */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.catalog_settings', 'Catalog Download Settings')}</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.catalog_title_label', 'Catalog Display Title')}</label>
+                  <input 
+                    type="text" 
+                    value={catalogTitle} 
+                    onChange={e => setCatalogTitle(e.target.value)} 
+                    placeholder={t('home.catalog_2026', 'Product Catalog 2026')}
+                    className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#8892B0] mb-1">{t('admin.catalog_file', 'Catalog File (PDF)')}</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={catalogUrl} 
+                      onChange={e => setCatalogUrl(e.target.value)} 
+                      placeholder="https://example.com/catalog.pdf"
+                      className="flex-1 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                    />
+                    <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                      <Plus className="w-4 h-4 mr-1" />
+                      <span className="text-xs">{t('admin.select_file')}</span>
+                      <input type="file" className="sr-only" accept="application/pdf" onChange={e => handleFileUpload(e, setCatalogUrl, catalogUrl)} />
+                    </label>
+                  </div>
+                  {catalogUrl && (
+                    <button type="button" onClick={() => { deleteFileFromServer(catalogUrl); setCatalogUrl(''); }} className="mt-1 text-xs text-red-500 hover:underline">{t('admin.delete')}</button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.whatsapp_link', 'WhatsApp Direct Link (e.g. wa.me link or full URL)')}</label>
+              <input type="text" value={whatsappLink} onChange={e => setWhatsappLink(e.target.value)} placeholder="https://wa.me/8612345678901" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.whatsapp_qr_url')}</label>
+              <div className="flex items-start gap-6">
+                <label className="group relative flex flex-col items-center justify-center w-32 h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden flex-shrink-0">
+                  {whatsappQrUrl ? (
+                    <>
+                      <img src={whatsappQrUrl} alt="WhatsApp QR" className="w-full h-full object-contain p-2 bg-white" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Plus className="w-6 h-6 text-[#FFB300]" />
+                      </div>
+                    </>
+                  ) : (
+                    <Plus className="w-8 h-8 text-[#8892B0] group-hover:text-[#FFB300]" />
+                  )}
+                  <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setWhatsappQrUrl, whatsappQrUrl)} />
+                </label>
+                <div className="flex-1">
+                  <input type="text" value={whatsappQrUrl} onChange={e => setWhatsappQrUrl(e.target.value)} placeholder="https://..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none" />
+                  <p className="mt-2 text-xs text-[#8892B0]">{t('admin.whatsapp_qr_hint', 'Upload WhatsApp contact QR code')}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Social Links */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Share2 className="w-5 h-5 mr-2" /> {t('admin.social_links', 'Social Media Links')}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Facebook URL</label>
+              <input type="text" value={facebook} onChange={e => setFacebook(e.target.value)} placeholder="https://facebook.com/..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Twitter URL</label>
+              <input type="text" value={twitter} onChange={e => setTwitter(e.target.value)} placeholder="https://twitter.com/..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Instagram URL</label>
+              <input type="text" value={instagram} onChange={e => setInstagram(e.target.value)} placeholder="https://instagram.com/..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">LinkedIn URL</label>
+              <input type="text" value={linkedin} onChange={e => setLinkedin(e.target.value)} placeholder="https://linkedin.com/in/..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+          </div>
+        </div>
+
+        {/* Features Layout Setting */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Layers className="w-5 h-5 mr-2" /> {t('admin.layout_settings', 'Layout Settings')}
+          </h3>
+          <div>
+            <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.features_layout', 'Partnership & Features Layout Style')}</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button 
+                type="button"
+                onClick={() => setFeaturesLayout('classic')}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'classic' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+              >
+                <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_classic', 'Classic')}</div>
+                <div className="text-xs text-[#8892B0]">{t('admin.layout_classic_desc', 'Standard stacked layout with indicators above and features below.')}</div>
+              </button>
+              <button 
+                type="button"
+                onClick={() => setFeaturesLayout('modern')}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'modern' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+              >
+                <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_modern', 'Modern')}</div>
+                <div className="text-xs text-[#8892B0]">{t('admin.layout_modern_desc', 'Alternating layout with decorative elements.')}</div>
+              </button>
+              <button 
+                type="button"
+                onClick={() => setFeaturesLayout('split')}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'split' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+              >
+                <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_split', 'Split')}</div>
+                <div className="text-xs text-[#8892B0]">{t('admin.layout_split_desc', 'Sidebar layout where key indicators focus on one side.')}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Branding Assets */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-6">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Package className="w-5 h-5 mr-2" /> {t('admin.branding_settings', 'Branding & Visuals')}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Hero Banner Component */}
+            <div className="space-y-6">
+              <h4 className="text-md font-medium text-[#E6F1FF]">{t('admin.hero_banner')}</h4>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.bg_video_url')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
+                  <div className="flex gap-2 mb-2">
+                    <div className="relative flex-1">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Activity className="h-4 w-4 text-[#8892B0]" />
+                      </div>
+                      <input 
+                        type="text" 
+                        value={heroVideoUrl} 
+                        onChange={e => setHeroVideoUrl(e.target.value)} 
+                        placeholder="https://example.com/video.mp4"
+                        className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                      />
+                    </div>
+                    <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                      <Plus className="w-4 h-4 mr-1" />
+                      <span className="text-xs">{t('admin.select_file')}</span>
+                      <input type="file" className="sr-only" accept="video/mp4" onChange={e => handleFileUpload(e, setHeroVideoUrl, heroVideoUrl)} />
+                    </label>
+                  </div>
+                  <p className="text-xs text-[#8892B0]">{t('admin.video_hint')}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.bg_image_url')}</label>
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <FileText className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={heroBgUrl} 
+                          onChange={e => setHeroBgUrl(e.target.value)} 
+                          placeholder="https://example.com/hero-bg.jpg"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                        />
+                      </div>
+                      {heroBgUrl && (
+                        <button 
+                          type="button" 
+                          onClick={() => { 
+                            if (window.confirm(t('admin.confirm_delete'))) {
+                              deleteFileFromServer(heroBgUrl); 
+                              setHeroBgUrl(''); 
+                            }
+                          }}
+                          className="px-3 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    <label className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                      {heroBgUrl ? (
+                        <>
+                          <img src={heroBgUrl} alt="Hero Preview" className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
+                          <div className="relative z-10 flex flex-col items-center">
+                            <Plus className="w-6 h-6 text-[#FFB300] mb-1" />
+                            <span className="text-xs text-[#E6F1FF] font-medium">{t('admin.replace_image', 'Replace Image')}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <Plus className="w-8 h-8 text-[#8892B0] group-hover:text-[#FFB300] transition-colors mb-2" />
+                          <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
+                        </div>
+                      )}
+                      <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setHeroBgUrl, heroBgUrl)} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Navbar Logo Component */}
+            <div className="space-y-6">
+              <h4 className="text-md font-medium text-[#E6F1FF]">{t('admin.navbar_logo')}</h4>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <ShieldCheck className="h-4 w-4 text-[#8892B0]" />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={logoUrl} 
+                      onChange={e => setLogoUrl(e.target.value)} 
+                      placeholder="https://example.com/logo.png"
+                      className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                    />
+                  </div>
+                  {logoUrl && (
+                    <button 
+                      type="button" 
+                      onClick={() => { 
+                        if (window.confirm(t('admin.confirm_delete'))) {
+                          deleteFileFromServer(logoUrl); 
+                          setLogoUrl(''); 
+                        }
+                      }}
+                      className="px-3 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <label className="group relative flex flex-col items-center justify-center w-full min-h-[100px] border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden p-4">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="Logo Preview" className="max-h-20 w-auto object-contain opacity-80 group-hover:opacity-100 transition-opacity" />
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <Plus className="w-6 h-6 text-[#8892B0] group-hover:text-[#FFB300] transition-colors mb-1" />
+                      <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
+                    </div>
+                  )}
+                  <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setLogoUrl, logoUrl)} />
+                </label>
+              </div>
+            </div>
+
+            {/* Stats Background Component */}
+            <div className="space-y-6 md:col-span-2">
+              <h4 className="text-md font-medium text-[#E6F1FF]">{t('admin.stats_bg')}</h4>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.stats_video_url', 'Background Video (Priority)')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <Activity className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={statsVideoUrl} 
+                          onChange={e => setStatsVideoUrl(e.target.value)} 
+                          placeholder="https://example.com/video.mp4"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="video/mp4" onChange={e => handleFileUpload(e, setStatsVideoUrl, statsVideoUrl)} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.stats_bg_url', 'Fallback Image')}</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <MapPin className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={statsBgUrl} 
+                          onChange={e => setStatsBgUrl(e.target.value)} 
+                          placeholder="https://example.com/bg.jpg"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setStatsBgUrl, statsBgUrl)} />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {statsVideoUrl ? (
+                      <div className="flex flex-col items-center">
+                        <Video className="w-8 h-8 text-[#FFB300] mb-2" />
+                        <span className="text-xs text-[#E6F1FF] font-medium">{t('admin.video_uploaded', 'Video Uploaded')}</span>
+                        <button type="button" onClick={() => { deleteFileFromServer(statsVideoUrl); setStatsVideoUrl(''); }} className="mt-2 text-xs text-red-500 hover:underline">{t('admin.delete')}</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Video className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_video', 'No Video')}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {statsBgUrl ? (
+                      <>
+                        <div className="absolute inset-0 bg-cover bg-center opacity-40 group-hover:opacity-60 transition-opacity" style={{ backgroundImage: `url(${statsBgUrl})` }}></div>
+                        <button type="button" onClick={() => { deleteFileFromServer(statsBgUrl); setStatsBgUrl(''); }} className="relative z-10 text-xs text-red-500 hover:underline bg-[#0A192F]/80 px-2 py-1 rounded">{t('admin.delete')}</button>
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Plus className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_image', 'No Image')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Story Section Background Component */}
+            <div className="space-y-6 md:col-span-2">
+              <h4 className="text-md font-medium text-[#E6F1FF]">{t('admin.story_bg', 'Story Section Background')}</h4>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.story_video_url', 'Story Video (Priority)')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <Video className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={storyVideoUrl} 
+                          onChange={e => setStoryVideoUrl(e.target.value)} 
+                          placeholder="https://example.com/story.mp4"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="video/mp4" onChange={e => handleFileUpload(e, setStoryVideoUrl, storyVideoUrl)} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.story_bg_url', 'Story Image (Fallback)')}</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <ImageIcon className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={storyBgUrl} 
+                          onChange={e => setStoryBgUrl(e.target.value)} 
+                          placeholder="https://example.com/story.jpg"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setStoryBgUrl, storyBgUrl)} />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {storyVideoUrl ? (
+                      <div className="flex flex-col items-center">
+                        <Video className="w-8 h-8 text-[#FFB300] mb-2" />
+                        <span className="text-xs text-[#E6F1FF] font-medium">{t('admin.video_uploaded')}</span>
+                        <button type="button" onClick={() => { deleteFileFromServer(storyVideoUrl); setStoryVideoUrl(''); }} className="mt-2 text-xs text-red-500 hover:underline">{t('admin.delete')}</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Video className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_video')}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {storyBgUrl ? (
+                      <>
+                        <div className="absolute inset-0 bg-cover bg-center opacity-40 group-hover:opacity-60 transition-opacity" style={{ backgroundImage: `url(${storyBgUrl})` }}></div>
+                        <button type="button" onClick={() => { deleteFileFromServer(storyBgUrl); setStoryBgUrl(''); }} className="relative z-10 text-xs text-red-500 hover:underline bg-[#0A192F]/80 px-2 py-1 rounded">{t('admin.delete')}</button>
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Plus className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_image')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-6">
+          <button 
+            type="submit" 
+            disabled={isSaving}
+            className={`px-8 py-3 bg-[#FFB300] text-[#0A192F] rounded-md font-bold hover:bg-[#FFCA28] transition-all flex items-center shadow-lg ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {isSaving ? <RefreshCw className="w-5 h-5 mr-2 animate-spin" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
+            {isSaving ? t('admin.saving') : t('admin.save_settings')}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SystemHealthManager() {
+  const { t } = useTranslation();
+  const [health, setHealth] = useState<any>(null);
+  const [taskStatus, setTaskStatus] = useState<string>('idle');
+  const [loading, setLoading] = useState(true);
+
+  const fetchHealth = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl('/api/health'));
+      const data = await res.json();
+      setHealth(data);
+    } catch (error) {
+      console.error("Error fetching health:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkTask = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/admin/task-status'));
+      const data = await res.json();
+      setTaskStatus(data.status);
+    } catch (error) {
+      console.error("Error checking task:", error);
+    }
+  };
+
+  const runTask = async () => {
+    try {
+      await fetch(apiUrl('/api/admin/run-task'), { method: 'POST' });
+      setTaskStatus('running');
+    } catch (error) {
+      console.error("Error running task:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchHealth();
+    const interval = setInterval(checkTask, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.health_title')}</h2>
+        <button onClick={fetchHealth} className="p-2 text-[#FFB300] hover:bg-[#0A192F] rounded-full transition-colors">
+          <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {health && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+            <h3 className="text-[#8892B0] text-sm uppercase tracking-wider mb-4">{t('admin.api_status')}</h3>
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+              <span className="text-[#E6F1FF] font-medium">{t('admin.backend_online')}</span>
+            </div>
+            <div className="mt-4 text-xs text-[#8892B0]">
+              {t('admin.last_check')}: {new Date(health.timestamp).toLocaleString()}
+            </div>
+          </div>
+
+          <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+            <h3 className="text-[#8892B0] text-sm uppercase tracking-wider mb-4">{t('admin.background_tasks')}</h3>
+            <div className="space-y-4">
+              {health.backgroundTasks.map((task: any, idx: number) => (
+                <div key={idx} className="flex justify-between items-center">
+                  <span className="text-[#E6F1FF] text-sm">{task.name}</span>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    task.status === 'running' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-500/20 text-gray-400'
+                  }`}>
+                    {task.status} {task.progress && `(${task.progress})`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#0A192F] p-6 rounded-xl border border-white/5">
+        <h3 className="text-[#8892B0] text-sm uppercase tracking-wider mb-4">{t('admin.manual_trigger')}</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className={`px-4 py-2 rounded-md text-sm font-medium ${
+              taskStatus === 'running' ? 'bg-blue-500/20 text-blue-400' : 
+              taskStatus === 'completed' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+            }`}>
+              {t('admin.task_status')}: {taskStatus === 'idle' ? t('admin.task_idle') : taskStatus === 'running' ? t('admin.task_running') : t('admin.task_completed')}
+            </div>
+            {taskStatus === 'running' && <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />}
+          </div>
+          <button 
+            onClick={runTask}
+            disabled={taskStatus === 'running'}
+            className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-bold hover:bg-[#FFCA28] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {t('admin.run_sync_task')}
+          </button>
+        </div>
+        <p className="mt-4 text-xs text-[#8892B0]">
+          {t('admin.sync_task_desc')}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function QualificationsManager() {
+  const { t } = useTranslation();
+  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newQual, setNewQual] = useState({
+    title: '',
+    category: 'ISO Certification',
+    fileUrl: '',
+    fileName: ''
+  });
+
+  const categories = ['ISO Certification', 'CE Certification', 'Patents', 'Awards', 'Lighting System', 'Braking System', 'Filters', 'Exterior Parts', 'Others'];
+
+  const fetchQualifications = async () => {
+    setLoading(true);
+    try {
+      const q = collection(db, 'qualifications');
+      const snapshot = await getDocs(q);
+      setQualifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'qualifications');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchQualifications();
+  }, []);
+
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${t('admin.file_too_large')} (${(file.size / 1024 / 1024).toFixed(1)}MB). ${t('admin.content_too_large')}`);
+        return;
+      }
+
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch(apiUrl('/api/upload'), {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = `Upload failed (${response.status})`;
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.error || errorMessage;
+          } catch (e) {
+            console.error('Non-JSON error response in QualificationsManager:', text.substring(0, 500));
+          }
+          throw new Error(errorMessage);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Invalid content type in QualificationsManager:', contentType, 'Body:', text.substring(0, 500));
+          throw new Error('Server returned invalid response format (Expected JSON)');
+        }
+
+        const data = await response.json();
+        setNewQual({ ...newQual, fileUrl: data.url, fileName: data.name });
+      } catch (error: any) {
+        console.error('Upload error in QualificationsManager:', error);
+        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQual.fileUrl) {
+      alert(t('admin.upload_file_error'));
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, 'qualifications'), {
+        ...newQual,
+        createdAt: new Date().toISOString()
+      });
+      setIsAdding(false);
+      setNewQual({ title: '', category: 'ISO Certification', fileUrl: '', fileName: '' });
+      fetchQualifications();
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.CREATE, 'qualifications');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm(t('admin.confirm_delete_qual'))) {
+      try {
+        const qual = qualifications.find(q => q.id === id);
+        if (qual?.fileUrl) {
+          const fileDeleted = await deleteFileFromServer(qual.fileUrl);
+          if (!fileDeleted) {
+            console.warn('Physical file deletion failed or file not found on server, continuing with database deletion.');
+          }
+        }
+        await deleteDoc(doc(db, 'qualifications', id));
+        fetchQualifications();
+        alert(t('admin.delete_success', 'Deleted successfully'));
+      } catch (error) {
+        console.error('Delete error:', error);
+        handleFirestoreError(error, OperationType.DELETE, 'qualifications');
+      }
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.qualifications')}</h2>
+        <button 
+          onClick={() => setIsAdding(true)}
+          className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4 mr-2" /> {t('admin.add_qualification')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-[#E6F1FF]">{t('admin.add_new_qualification')}</h3>
+            <button onClick={() => setIsAdding(false)} className="text-[#8892B0] hover:text-[#E6F1FF]">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <form onSubmit={handleAdd} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.qual_title')}</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={newQual.title} 
+                  onChange={e => setNewQual({...newQual, title: e.target.value})} 
+                  className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.category')}</label>
+                <select 
+                  value={newQual.category} 
+                  onChange={e => setNewQual({...newQual, category: e.target.value})} 
+                  className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                >
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{t(`admin.${cat.toLowerCase().replace(' ', '_')}`, cat)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.upload_file_hint')}</label>
+              <div className="flex items-center gap-4">
+                <label className={`cursor-pointer flex items-center px-4 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                  {isUploading ? t('admin.uploading') : t('admin.select_file')}
+                  <input type="file" className="sr-only" accept=".pdf,image/*" onChange={handleFileUpload} disabled={isUploading} />
+                </label>
+                {newQual.fileName && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-[#E6F1FF] truncate max-w-xs">{newQual.fileName}</span>
+                    <button 
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(t('admin.confirm_delete'))) {
+                          if (newQual.fileUrl) {
+                            await deleteFileFromServer(newQual.fileUrl);
+                          }
+                          setNewQual({ ...newQual, fileUrl: '', fileName: '' });
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-400 p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end pt-4">
+              <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-bold hover:bg-[#FFCA28] transition-colors">
+                {t('admin.save_qualification')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {categories.map(category => {
+          const catQuals = qualifications.filter(q => q.category === category);
+          if (catQuals.length === 0 && !loading) return null;
+          
+          return (
+            <div key={category} className="bg-[#0A192F] rounded-lg border border-white/5 overflow-hidden">
+              <div className="px-4 py-3 bg-white/5 border-b border-white/5">
+                <h3 className="text-[#FFB300] font-bold text-sm uppercase tracking-wider">{t(`admin.${category.toLowerCase().replace(' ', '_')}`, category)}</h3>
+              </div>
+              <div className="p-4 space-y-3">
+                {catQuals.map(q => (
+                  <div key={q.id} className="flex items-center justify-between group">
+                    <div className="flex items-center space-x-3 overflow-hidden">
+                      <FileDown className="w-4 h-4 text-[#8892B0] shrink-0" />
+                      <a 
+                        href={q.fileUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-[#E6F1FF] text-sm truncate hover:text-[#FFB300] transition-colors"
+                      >
+                        {q.title}
+                      </a>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={() => handleDelete(q.id)}
+                        className="p-1 text-[#8892B0] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {catQuals.length === 0 && (
+                  <div className="text-xs text-[#8892B0] italic">{t('admin.no_qualifications')}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {loading && (
+        <div className="text-center py-12 text-[#8892B0]">{t('admin.loading')}</div>
+      )}
+    </div>
+  );
+}
+
+
