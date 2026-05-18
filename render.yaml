@@ -17,7 +17,9 @@ services:
         value: "*"          # Tighten to your frontend domain after first deploy
       - key: PUBLIC_BASE_URL
         sync: false         # Set manually to https://<your-service>.onrender.com after first deploy
-    disk:
-      name: uploads
-      mountPath: /opt/render/project/src/public/uploads
-      sizeGB: 1
+    # NOTE: Render free tier has no persistent disk; uploaded files are lost on restart.
+    # If you need persistence, upgrade to plan: starter and uncomment the disk block below.
+    # disk:
+    #   name: uploads
+    #   mountPath: /opt/render/project/src/public/uploads
+    #   sizeGB: 1
