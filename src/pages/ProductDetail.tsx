@@ -5,6 +5,7 @@ import { doc, getDoc, collection, addDoc, getDocs } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { useStore } from '../store/useStore';
 import { ArrowLeft, MessageCircle, FileText, Lock, Loader2, Video } from 'lucide-react';
+import SEO from '../components/SEO';
 
 interface Product {
   id: string;
@@ -137,8 +138,41 @@ export default function ProductDetail() {
     );
   }
 
+  const productImage = product?.imageUrls?.[0];
+  const productCategory = product?.categoryName || 'Auto Parts';
+  const productJsonLd = product
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: product.name,
+        sku: product.sku,
+        category: productCategory,
+        image: product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : undefined,
+        brand: { '@type': 'Brand', name: 'Vida Auto' },
+        description: `${product.name} (SKU: ${product.sku}) - ${productCategory}. Wholesale auto parts from Vida Auto.`,
+        offers: {
+          '@type': 'Offer',
+          priceCurrency: 'USD',
+          price: product.price > 0 ? product.price : undefined,
+          availability: 'https://schema.org/InStock',
+          seller: { '@type': 'Organization', name: 'Vida Auto' },
+          url: `https://autoparts.fit/products/${product.id}`,
+        },
+      }
+    : undefined;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      {product && (
+        <SEO
+          title={`${product.name} (${product.sku}) | Vida Auto`}
+          description={`${product.name} - ${productCategory}. SKU ${product.sku}. Bulk wholesale auto parts from Vida Auto with global shipping.`}
+          path={`/products/${product.id}`}
+          image={productImage}
+          type="product"
+          jsonLd={productJsonLd}
+        />
+      )}
       <Link to="/products" className="inline-flex items-center text-sm text-[#8892B0] hover:text-[#FFB300] mb-8 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-2" /> {t('product.back_to_catalog')}
       </Link>

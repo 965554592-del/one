@@ -4,6 +4,7 @@ import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Filter, ArrowRight, FileText } from 'lucide-react';
+import SEO from '../components/SEO';
 
 interface Product {
   id: string;
@@ -79,6 +80,11 @@ export default function Products() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <SEO
+        title="Auto Parts Catalog - Vida Auto Wholesale"
+        description="Browse Vida Auto's full catalog of OEM and aftermarket auto parts. Filter by category, search by SKU, and request bulk wholesale quotes."
+        path="/products"
+      />
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-[#E6F1FF] mb-4 md:mb-0">{t('products.title')}</h1>
         

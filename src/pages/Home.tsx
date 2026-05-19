@@ -7,6 +7,7 @@ import { Search, CheckCircle, Send, Lightbulb, Disc, Filter, Car, LayoutGrid, Ar
 import { useStore } from '../store/useStore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import SEO from '../components/SEO';
 
 const Globe = lazy(() => import('../components/Globe'));
 
@@ -143,6 +144,32 @@ export default function Home() {
 
   return (
     <div className="flex-1 flex flex-col w-full">
+      <SEO
+        title="Vida Auto - Wholesale Auto Parts Supplier from China"
+        description="Vida Auto supplies high-quality OEM and aftermarket auto parts to global B2B buyers. 12.5k+ SKUs, 45+ countries served, fast bulk shipping."
+        path="/"
+        image={siteSettings?.logoUrl || '/favicon.png'}
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'Organization',
+          name: 'Vida Auto',
+          url: 'https://autoparts.fit',
+          logo: 'https://autoparts.fit/favicon.png',
+          sameAs: [
+            siteSettings?.facebook,
+            siteSettings?.twitter,
+            siteSettings?.instagram,
+            siteSettings?.linkedin,
+          ].filter(Boolean),
+          contactPoint: {
+            '@type': 'ContactPoint',
+            telephone: siteSettings?.phone || '',
+            email: siteSettings?.email || '',
+            contactType: 'sales',
+            areaServed: 'Worldwide',
+          },
+        }}
+      />
       {/* HERO SECTION - FULL WIDTH */}
       <div className="relative w-full min-h-[500px] flex flex-col justify-center items-center py-16 overflow-hidden mb-8">
         {/* Background Video/Image */}

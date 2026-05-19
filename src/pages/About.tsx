@@ -1,10 +1,16 @@
 import { useTranslation } from 'react-i18next';
+import SEO from '../components/SEO';
 
 export default function About() {
   const { t } = useTranslation();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <SEO
+        title="About Vida Auto - Your Trusted Auto Parts Supplier"
+        description="Learn about Vida Auto, an experienced wholesale auto parts supplier from China serving global B2B buyers with OEM-grade quality and reliable logistics."
+        path="/about"
+      />
       <h1 className="text-3xl font-bold text-[#E6F1FF] mb-8">{t('nav.about')}</h1>
       
       <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
