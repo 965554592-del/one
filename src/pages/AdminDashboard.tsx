@@ -9,7 +9,7 @@ import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Ac
 import { apiUrl } from '../lib/api';
 import { uploadFileToStorage, deleteFileFromStorage } from '../lib/storage';
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Firebase Storage allows much more; keep a sane UX cap.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // Firebase Storage allows much more; keep a sane UX cap.
 
 /**
  * Uploads a file to Firebase Storage (primary backend) and returns the
@@ -1255,7 +1255,7 @@ function ProductsManager() {
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            if (file.size > 15 * 1024 * 1024) {
+                            if (file.size > MAX_UPLOAD_BYTES) {
                               alert(t('admin.file_too_large'));
                               return;
                             }
@@ -1298,7 +1298,7 @@ function ProductsManager() {
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          if (file.size > 15 * 1024 * 1024) {
+                          if (file.size > MAX_UPLOAD_BYTES) {
                             alert(t('admin.file_too_large'));
                             return;
                           }
