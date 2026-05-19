@@ -35,6 +35,24 @@ interface SiteSettings {
   statsRegions?: string;
   statsSkus?: string;
   salesRegions?: { name: string; lat: number; lon: number }[];
+  metaPixelId?: string;
+  fbCapiAccessToken?: string;
+  fbCapiTestCode?: string;
+  workingHours?: string;
+  workingHoursTz?: string;
+  crmWebhookUrl?: string;
+  crmWebhookHeaders?: string;
+  crmWebhookEnabled?: boolean;
+  resendApiKey?: string;
+  emailProvider?: 'resend' | 'smtp';
+  smtpHost?: string;
+  smtpPort?: string;
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpSecure?: boolean;
+  notifyEmails?: string;
+  emailAutoReplyEnabled?: boolean;
+  emailNotifyEnabled?: boolean;
 }
 
 interface AppState {

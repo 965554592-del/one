@@ -8,18 +8,31 @@ import { useStore } from '../store/useStore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import SEO from '../components/SEO';
+import { trackLead } from '../lib/pixel';
+import { pushToCRM } from '../lib/webhook';
+import { buildSmtp, sendAdminNotification, sendCustomerAutoReply } from '../lib/email';
+import { sendCapiLead, generateEventId } from '../lib/capi';
 
 const Globe = lazy(() => import('../components/Globe'));
 
 export default function Home() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { siteSettings } = useStore();
+  const { siteSettings, user } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [starProduct, setStarProduct] = useState<any>(null);
   
   // Contact Form State
-  const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' });
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    company: '',
+    email: '',
+    phone: '',
+    vehicleModel: '',
+    partNeed: '',
+    quantity: '',
+    message: '',
+  });
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -96,13 +109,66 @@ export default function Home() {
     try {
       await addDoc(collection(db, 'messages'), {
         name: contactForm.name,
+        company: contactForm.company,
         email: contactForm.email,
+        phone: contactForm.phone,
+        vehicleModel: contactForm.vehicleModel,
+        partNeed: contactForm.partNeed,
+        quantity: contactForm.quantity,
         message: contactForm.message,
         status: 'new',
-        createdAt: new Date().toISOString()
+        source: 'home_inquiry_form',
+        createdAt: new Date().toISOString(),
+        ...(user ? { userId: user.uid, userEmail: user.email } : {}),
       });
+      // Shared event ID for pixel + CAPI deduplication
+      const leadEventId = generateEventId();
+      trackLead({
+        content_name: 'Home Inquiry Form',
+        content_category: contactForm.partNeed || 'general',
+        company: contactForm.company,
+        eventID: leadEventId,
+      });
+      // Server-side CAPI (fire-and-forget)
+      if (siteSettings?.metaPixelId && siteSettings?.fbCapiAccessToken) {
+        sendCapiLead(
+          siteSettings.metaPixelId,
+          siteSettings.fbCapiAccessToken,
+          { email: contactForm.email, phone: contactForm.phone, fn: contactForm.name, external_id: contactForm.email },
+          { content_name: 'Home Inquiry Form', content_category: contactForm.partNeed || 'general' },
+          leadEventId,
+          siteSettings.fbCapiTestCode || undefined,
+        );
+      }
+      // Fire-and-forget CRM webhook push (never blocks UI).
+      if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
+        pushToCRM(
+          { ...contactForm, source: 'home_inquiry_form', createdAt: new Date().toISOString() },
+          siteSettings.crmWebhookUrl,
+          siteSettings.crmWebhookHeaders,
+        ).catch(() => {/* logged inside pushToCRM */});
+      }
+      // Fire-and-forget email notifications.
+      const smtp = buildSmtp(siteSettings || {});
+      if (smtp) {
+        if (siteSettings?.emailNotifyEnabled && siteSettings?.notifyEmails) {
+          sendAdminNotification(smtp, siteSettings.notifyEmails, contactForm).catch(() => {});
+        }
+        if (siteSettings?.emailAutoReplyEnabled && contactForm.email) {
+          sendCustomerAutoReply(smtp, contactForm.email, contactForm.name).catch(() => {});
+        }
+      }
       setIsSubmitted(true);
-      setContactForm({ name: '', email: '', message: '' });
+      setContactForm({
+        name: '',
+        company: '',
+        email: '',
+        phone: '',
+        vehicleModel: '',
+        partNeed: '',
+        quantity: '',
+        message: '',
+      });
       setTimeout(() => setIsSubmitted(false), 5000);
     } catch (error) {
       console.error("Error submitting contact form:", error);
@@ -447,32 +513,71 @@ export default function Home() {
               <p className="text-[#E6F1FF] font-medium text-sm">{t('home.contact_success')}</p>
             </div>
           ) : (
-            <form onSubmit={handleContactSubmit} className="flex flex-col space-y-3 flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input 
-                  type="text" 
+            <form onSubmit={handleContactSubmit} className="flex flex-col space-y-2 flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input
+                  type="text"
                   required
-                  placeholder={t('contact.name')} 
-                  value={contactForm.name}
-                  onChange={(e) => setContactForm({...contactForm, name: e.target.value})}
-                  className="bg-black/20 border border-white/10 p-2.5 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50" 
+                  placeholder={t('contact.company', 'Company Name *')}
+                  value={contactForm.company}
+                  onChange={(e) => setContactForm({ ...contactForm, company: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
                 />
-                <input 
-                  type="email" 
+                <input
+                  type="email"
                   required
-                  placeholder={t('contact.email')} 
+                  placeholder={t('contact.email', 'Email *')}
                   value={contactForm.email}
-                  onChange={(e) => setContactForm({...contactForm, email: e.target.value})}
-                  className="bg-black/20 border border-white/10 p-2.5 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50" 
+                  onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
                 />
               </div>
-              <textarea 
-                required
-                placeholder={t('contact.message')} 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder={t('contact.name', 'Contact Name')}
+                  value={contactForm.name}
+                  onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <input
+                  type="tel"
+                  placeholder={t('contact.phone', 'Phone (with country code)')}
+                  value={contactForm.phone}
+                  onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  placeholder={t('contact.vehicle_model', 'Vehicle Model')}
+                  value={contactForm.vehicleModel}
+                  onChange={(e) => setContactForm({ ...contactForm, vehicleModel: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <input
+                  type="text"
+                  required
+                  placeholder={t('contact.part_need', 'Part Needed *')}
+                  value={contactForm.partNeed}
+                  onChange={(e) => setContactForm({ ...contactForm, partNeed: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <input
+                  type="text"
+                  placeholder={t('contact.quantity', 'Quantity')}
+                  value={contactForm.quantity}
+                  onChange={(e) => setContactForm({ ...contactForm, quantity: e.target.value })}
+                  className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm focus:outline-none focus:border-[#FFB300]/50"
+                />
+              </div>
+              <textarea
+                placeholder={t('contact.message', 'Additional notes (optional)')}
                 rows={2}
                 value={contactForm.message}
-                onChange={(e) => setContactForm({...contactForm, message: e.target.value})}
-                className="bg-black/20 border border-white/10 p-2.5 rounded-lg text-white text-sm flex-1 focus:outline-none focus:border-[#FFB300]/50 resize-none" 
+                onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                className="bg-black/20 border border-white/10 p-2 rounded-lg text-white text-sm flex-1 focus:outline-none focus:border-[#FFB300]/50 resize-none"
               ></textarea>
               <button type="submit" className="bg-[#FFB300] text-[#0A192F] p-2.5 rounded-lg font-semibold text-sm hover:bg-[#FFCA28] transition-colors flex items-center justify-center">
                 <Send className="w-4 h-4 mr-2" />

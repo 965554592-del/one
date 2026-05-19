@@ -10,6 +10,9 @@ import './i18n';
 // Layouts
 import MainLayout from './components/layout/MainLayout';
 
+// Tracking
+import MetaPixel from './components/MetaPixel';
+
 // Pages
 import Home from './pages/Home';
 import Products from './pages/Products';
@@ -101,6 +104,7 @@ export default function App() {
 
   return (
     <Router>
+      <MetaPixel />
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Home />} />

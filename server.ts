@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import fs from "fs";
+import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,7 +29,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit (supports 1080p video ≤30s)
 });
 
 async function startServer() {
@@ -115,7 +117,7 @@ async function startServer() {
       if (err) {
         console.error("[Upload] Multer error:", err);
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({ error: "File too large (Max: 15MB)" });
+          return res.status(413).json({ error: "File too large (Max: 100MB)" });
         }
         return res.status(500).json({ error: `Upload error: ${err.message || 'Unknown'}` });
       }
@@ -188,6 +190,277 @@ async function startServer() {
 
   app.get("/api/admin/task-status", (req, res) => {
     res.json({ status: taskStatus });
+  });
+
+  // ─── Email Sending Endpoint ───────────────────────────────
+  // Supports two transports:
+  //   1. Resend API (preferred) — pass { resendApiKey } in body
+  //   2. SMTP/Nodemailer (fallback) — pass { smtp: { host, port, secure, user, pass } }
+  // If both are provided, Resend takes priority.
+  app.post("/api/send-email", async (req, res) => {
+    const {
+      resendApiKey, // Resend API key (takes priority over SMTP)
+      smtp,         // { host, port, secure, user, pass }
+      to,           // recipient email(s) — string or string[]
+      subject,
+      html,
+      text,
+      from,         // optional "Name <email>" override
+      replyTo,
+    } = req.body;
+
+    if (!to || !subject) {
+      return res.status(400).json({ error: "Missing required fields (to, subject)" });
+    }
+
+    const recipients = Array.isArray(to) ? to : [to];
+
+    // ── Resend transport ──
+    if (resendApiKey) {
+      try {
+        const resend = new Resend(resendApiKey);
+        const { data, error } = await resend.emails.send({
+          from: from || "Vida Auto <onboarding@resend.dev>",
+          to: recipients,
+          replyTo: replyTo || undefined,
+          subject,
+          html: html || undefined,
+          text: text || undefined,
+        });
+
+        if (error) {
+          console.error("[Email/Resend] Error:", error);
+          return res.status(400).json({ error: error.message || "Resend send failed" });
+        }
+
+        console.log(`[Email/Resend] Sent to ${recipients.join(", ")}: ${data?.id}`);
+        return res.json({ success: true, messageId: data?.id, provider: "resend" });
+      } catch (err: any) {
+        console.error("[Email/Resend] Exception:", err);
+        return res.status(500).json({ error: err.message || "Resend send failed" });
+      }
+    }
+
+    // ── SMTP/Nodemailer transport (fallback) ──
+    if (!smtp?.host || !smtp?.user || !smtp?.pass) {
+      return res.status(400).json({ error: "Missing email configuration (provide resendApiKey or smtp config)" });
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: Number(smtp.port) || 587,
+        secure: smtp.secure ?? (Number(smtp.port) === 465),
+        auth: { user: smtp.user, pass: smtp.pass },
+      });
+
+      const info = await transporter.sendMail({
+        from: from || `"Vida Auto" <${smtp.user}>`,
+        to: recipients.join(", "),
+        replyTo: replyTo || undefined,
+        subject,
+        text: text || undefined,
+        html: html || undefined,
+      });
+
+      console.log(`[Email/SMTP] Sent to ${to}: ${info.messageId}`);
+      res.json({ success: true, messageId: info.messageId, provider: "smtp" });
+    } catch (err: any) {
+      console.error("[Email/SMTP] Send failed:", err);
+      res.status(500).json({ error: err.message || "Failed to send email" });
+    }
+  });
+
+  // ─── Facebook Conversions API (CAPI) Proxy ──────────────────────
+  // Server-side event tracking to supplement the browser pixel.
+  // Accepts user data + event info, hashes PII, and sends to Meta Graph API.
+  app.post("/api/fb-capi", async (req, res) => {
+    const {
+      pixelId,
+      accessToken,
+      testEventCode,    // optional – for testing in Events Manager
+      eventName,        // e.g. 'Lead', 'Purchase', 'Contact'
+      eventTime,        // unix seconds
+      eventSourceUrl,   // page URL where event happened
+      userData,         // { email, phone, fn, ln, country, city, ... }
+      customData,       // { content_name, content_category, value, currency, ... }
+      eventId,          // deduplication ID (should match fbq eventID)
+    } = req.body;
+
+    if (!pixelId || !accessToken) {
+      return res.status(400).json({ error: "Missing pixelId or accessToken" });
+    }
+    if (!eventName) {
+      return res.status(400).json({ error: "Missing eventName" });
+    }
+
+    // Hash user data fields with SHA-256 (Facebook requires lowercase pre-hash)
+    const crypto = await import("crypto");
+    const hash = (val: string | undefined) => {
+      if (!val) return undefined;
+      return crypto.createHash("sha256").update(val.trim().toLowerCase()).digest("hex");
+    };
+
+    const hashedUserData: Record<string, any> = {};
+    if (userData) {
+      if (userData.email) hashedUserData.em = [hash(userData.email)];
+      if (userData.phone) hashedUserData.ph = [hash(userData.phone.replace(/[\s\-\(\)]/g, ''))];
+      if (userData.fn) hashedUserData.fn = [hash(userData.fn)];
+      if (userData.ln) hashedUserData.ln = [hash(userData.ln)];
+      if (userData.country) hashedUserData.country = [hash(userData.country)];
+      if (userData.city) hashedUserData.ct = [hash(userData.city)];
+      // Pass-through non-PII
+      if (userData.client_ip_address) hashedUserData.client_ip_address = userData.client_ip_address;
+      if (userData.client_user_agent) hashedUserData.client_user_agent = userData.client_user_agent;
+      if (userData.fbc) hashedUserData.fbc = userData.fbc;
+      if (userData.fbp) hashedUserData.fbp = userData.fbp;
+      if (userData.external_id) hashedUserData.external_id = [hash(userData.external_id)];
+    }
+
+    // Inject server-side IP if not provided
+    if (!hashedUserData.client_ip_address) {
+      hashedUserData.client_ip_address = req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() || req.socket.remoteAddress || "";
+    }
+    if (!hashedUserData.client_user_agent && req.headers["user-agent"]) {
+      hashedUserData.client_user_agent = req.headers["user-agent"];
+    }
+
+    const eventData: any = {
+      event_name: eventName,
+      event_time: eventTime || Math.floor(Date.now() / 1000),
+      action_source: "website",
+      event_source_url: eventSourceUrl || "",
+      user_data: hashedUserData,
+    };
+    if (customData) eventData.custom_data = customData;
+    if (eventId) eventData.event_id = eventId;
+
+    const payload: any = { data: [eventData] };
+    if (testEventCode) payload.test_event_code = testEventCode;
+
+    try {
+      const fbRes = await fetch(
+        `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const fbJson = await fbRes.json();
+      if (!fbRes.ok) {
+        console.error("[CAPI] Facebook error:", fbJson);
+        return res.status(fbRes.status).json({ error: fbJson.error || fbJson });
+      }
+      console.log(`[CAPI] ${eventName} sent for pixel ${pixelId}:`, fbJson);
+      res.json({ success: true, ...fbJson });
+    } catch (err: any) {
+      console.error("[CAPI] Network error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── Task Scan Endpoint (cron alternative to Cloud Functions) ──
+  // Hit this with an external cron service (e.g. cron-job.org) every hour:
+  //   POST https://vida-api.onrender.com/api/tasks/scan
+  //   Header: x-cron-key: <CRON_SECRET from env>
+  //
+  // Reads SMTP + tasks from Firestore, sends reminder email, marks tasks.
+  app.post("/api/tasks/scan", async (req, res) => {
+    // Simple auth – compare against env secret
+    const cronSecret = process.env.CRON_SECRET || "";
+    const providedKey = req.headers["x-cron-key"] || req.body?.cronKey || "";
+    if (cronSecret && providedKey !== cronSecret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+      // Dynamic import firebase-admin (only on this endpoint to keep startup fast)
+      const { initializeApp, getApps } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
+
+      if (getApps().length === 0) {
+        // Use default credentials in Cloud Run / Render with GOOGLE_APPLICATION_CREDENTIALS
+        // or init with project ID only (Firestore in native mode)
+        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+      }
+
+      const dbId = process.env.FIRESTORE_DB_ID || "ai-studio-3112dc56-9c5d-41d4-8544-f79c07c29140";
+      const fdb = getFirestore(dbId);
+
+      // Load settings
+      const settingsSnap = await fdb.doc("settings/global").get();
+      const s = settingsSnap.data() || {};
+      if (!s.smtpHost || !s.smtpUser || !s.smtpPass || !s.notifyEmails) {
+        return res.json({ skipped: true, reason: "SMTP or notify emails not configured" });
+      }
+
+      // Query due tasks
+      const today = new Date().toISOString().slice(0, 10);
+      const tasksSnap = await fdb
+        .collection("tasks")
+        .where("status", "==", "pending")
+        .where("reminderSent", "==", false)
+        .where("dueDate", "<=", today)
+        .get();
+
+      if (tasksSnap.empty) {
+        return res.json({ reminded: 0 });
+      }
+
+      // Build email
+      const taskRows = tasksSnap.docs.map(d => {
+        const t = d.data();
+        const overdue = t.dueDate < today;
+        return `<tr style="background:${overdue ? '#fff5f5' : '#fff'};">
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;">${t.title}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;">${t.customerName || '-'}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;color:${overdue ? '#e53e3e' : '#333'};">${t.dueDate}${overdue ? ' OVERDUE' : ''}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;">${t.priority}</td>
+        </tr>`;
+      }).join("");
+
+      const html = `<div style="font-family:Arial,sans-serif;max-width:650px;margin:0 auto;background:#f9fafb;padding:24px;border-radius:8px;">
+        <h2 style="color:#FFB300;margin-top:0;">Task Reminder — ${tasksSnap.size} task(s) due</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead><tr style="background:#0A192F;color:#FFB300;">
+            <th style="padding:10px 12px;text-align:left;">Task</th>
+            <th style="padding:10px 12px;text-align:left;">Customer</th>
+            <th style="padding:10px 12px;text-align:left;">Due Date</th>
+            <th style="padding:10px 12px;text-align:left;">Priority</th>
+          </tr></thead>
+          <tbody>${taskRows}</tbody>
+        </table>
+        <p style="margin-top:16px;font-size:13px;color:#666;">
+          <a href="https://autoparts.fit/admin" style="color:#FFB300;">Open Admin Dashboard</a>
+        </p>
+      </div>`;
+
+      const transporter = nodemailer.createTransport({
+        host: s.smtpHost,
+        port: Number(s.smtpPort) || 587,
+        secure: s.smtpSecure ?? false,
+        auth: { user: s.smtpUser, pass: s.smtpPass },
+      });
+
+      await transporter.sendMail({
+        from: `"Vida Auto" <${s.smtpUser}>`,
+        to: s.notifyEmails,
+        subject: `[Vida Auto] ${tasksSnap.size} follow-up task(s) due`,
+        html,
+      });
+
+      // Mark reminded
+      const batch = fdb.batch();
+      tasksSnap.docs.forEach(d => batch.update(d.ref, { reminderSent: true, lastRemindedAt: new Date().toISOString() }));
+      await batch.commit();
+
+      console.log(`[TaskScan] Reminded ${tasksSnap.size} tasks`);
+      res.json({ reminded: tasksSnap.size });
+    } catch (err: any) {
+      console.error("[TaskScan] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Comprehensive catch-all error handler for JSON responses

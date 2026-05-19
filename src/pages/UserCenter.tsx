@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { signInWithPopup, GoogleAuthProvider, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, orderBy, getDocs, deleteDoc, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { LogIn, LogOut, User as UserIcon, FileText, Mail } from 'lucide-react';
+import { LogOut, User as UserIcon, FileText, Heart, Package, Clock, Eye, Trash2 } from 'lucide-react';
 
 export default function UserCenter() {
   const { t } = useTranslation();
@@ -46,23 +46,13 @@ export default function UserCenter() {
         setMessage(t('auth.register_success'));
         await signOut(auth); // Sign out until they verify
       } else {
-        try {
-          const userCredential = await signInWithEmailAndPassword(auth, email, password);
-          // Skip verification for the predefined admin account or if already verified
-          const isAdminEmail = userCredential.user.email === '965554592@qq.com' || userCredential.user.email === 'admin@vida.com';
-          
-          if (!userCredential.user.emailVerified && !isAdminEmail) {
-            setErrorMsg(t('auth.verify_email'));
-            await signOut(auth);
-          }
-        } catch (error: any) {
-          // Auto-registration for the predefined admin account if it hasn't been created yet
-          if (email === '965554592@qq.com' && error.code === 'auth/user-not-found') {
-            await createUserWithEmailAndPassword(auth, email, password);
-            // Registration success - App.tsx will handle syncing the user doc as admin
-          } else {
-            throw error;
-          }
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        // Skip verification for the predefined admin account or if already verified
+        const isAdminEmail = userCredential.user.email === '965554592@qq.com' || userCredential.user.email === 'admin@vida.com';
+        
+        if (!userCredential.user.emailVerified && !isAdminEmail) {
+          setErrorMsg(t('auth.verify_email'));
+          await signOut(auth);
         }
       }
     } catch (error: any) {
@@ -102,18 +92,6 @@ export default function UserCenter() {
           {message && <div className="mb-4 p-3 bg-green-500/10 border border-green-500/20 text-green-400 rounded-md text-sm">{message}</div>}
           {errorMsg && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-md text-sm">{errorMsg}</div>}
           
-          <div className="flex gap-2 mb-4">
-             <button 
-               onClick={() => { setEmail('965554592@qq.com'); setPassword('46023234'); }}
-               className="text-[10px] uppercase tracking-widest px-2 py-1 bg-[#FFB300]/10 text-[#FFB300] border border-[#FFB300]/20 rounded hover:bg-[#FFB300]/20 transition-colors"
-             >
-               Quick Admin Fill
-             </button>
-             <div className="text-[10px] text-[#8892B0] self-center">
-               Pro-Tip: Use Google Login with this account if Email/Auth is disabled.
-             </div>
-          </div>
-
           <form onSubmit={handleEmailAuth} className="space-y-4 mb-6 text-left">
             <div>
               <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('auth.email')}</label>
@@ -181,10 +159,114 @@ export default function UserCenter() {
     );
   }
 
+  // ─── Tabs ──────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'inquiries' | 'favorites' | 'tracking'>('inquiries');
+
+  // ─── Inquiry History ──────────────────────────────────────
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState(false);
+  const [expandedInquiry, setExpandedInquiry] = useState<string | null>(null);
+
+  // ─── Favorites ────────────────────────────────────────────
+  const [favorites, setFavorites] = useState<any[]>([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+
+  // Fetch inquiries for this user
+  useEffect(() => {
+    if (!user) return;
+    const fetchInquiries = async () => {
+      setInquiriesLoading(true);
+      try {
+        // Query by userId first, fallback to email match
+        const q = query(
+          collection(db, 'messages'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+        );
+        const snap = await getDocs(q);
+        let results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // If no results by userId, try email match (for old inquiries before userId was added)
+        if (results.length === 0 && user.email) {
+          const qEmail = query(
+            collection(db, 'messages'),
+            where('email', '==', user.email),
+            orderBy('createdAt', 'desc'),
+          );
+          const snapEmail = await getDocs(qEmail);
+          results = snapEmail.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+
+        setInquiries(results);
+      } catch (err) {
+        console.error('[UserCenter] Failed to load inquiries:', err);
+      } finally {
+        setInquiriesLoading(false);
+      }
+    };
+    fetchInquiries();
+  }, [user]);
+
+  // Fetch favorites
+  useEffect(() => {
+    if (!user) return;
+    const fetchFavorites = async () => {
+      setFavoritesLoading(true);
+      try {
+        const q = query(collection(db, 'users', user.uid, 'favorites'), orderBy('addedAt', 'desc'));
+        const snap = await getDocs(q);
+        const favIds = snap.docs.map(d => ({ favDocId: d.id, ...d.data() }));
+        // Fetch product details
+        const products: any[] = [];
+        for (const fav of favIds) {
+          const pid = (fav as any).productId;
+          if (!pid) continue;
+          const pDoc = await getDoc(doc(db, 'products', pid));
+          if (pDoc.exists()) {
+            products.push({ favDocId: fav.favDocId, id: pDoc.id, ...pDoc.data(), addedAt: (fav as any).addedAt });
+          }
+        }
+        setFavorites(products);
+      } catch (err) {
+        console.error('[UserCenter] Failed to load favorites:', err);
+      } finally {
+        setFavoritesLoading(false);
+      }
+    };
+    fetchFavorites();
+  }, [user]);
+
+  const removeFavorite = async (favDocId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'favorites', favDocId));
+      setFavorites(prev => prev.filter(f => f.favDocId !== favDocId));
+    } catch (err) {
+      console.error('[UserCenter] Failed to remove favorite:', err);
+    }
+  };
+
+  const statusLabel = (status: string) => {
+    const map: Record<string, { label: string; color: string }> = {
+      new: { label: t('user.status_new', 'Submitted'), color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+      processing: { label: t('user.status_processing', 'In Progress'), color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' },
+      processed: { label: t('user.status_processed', 'Replied'), color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+      closed: { label: t('user.status_closed', 'Closed'), color: 'text-[#8892B0] bg-white/5 border-white/10' },
+    };
+    return map[status] || map.new;
+  };
+
+  const tabs = [
+    { key: 'inquiries' as const, label: t('user.tab_inquiries', 'My Inquiries'), icon: FileText, count: inquiries.length },
+    { key: 'favorites' as const, label: t('user.tab_favorites', 'Favorites'), icon: Heart, count: favorites.length },
+    { key: 'tracking' as const, label: t('user.tab_tracking', 'Order Tracking'), icon: Package },
+  ];
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-12">
+    <div className="max-w-4xl mx-auto px-4 py-12 space-y-6">
+      {/* Profile Header */}
       <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
-        <div className="p-8 border-b border-white/5 flex flex-col md:flex-row items-center justify-between">
+        <div className="p-8 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center mb-4 md:mb-0">
             {user.photoURL ? (
               <img src={user.photoURL} alt="Profile" className="w-16 h-16 rounded-full mr-4 border border-[#FFB300]/20" referrerPolicy="no-referrer" />
@@ -209,17 +291,178 @@ export default function UserCenter() {
             {t('auth.logout')}
           </button>
         </div>
-        
-        <div className="p-8">
-          <h3 className="text-lg font-bold text-[#E6F1FF] mb-6 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-[#FFB300]" />
-            {t('user.downloaded_docs')}
-          </h3>
-          
-          <div className="bg-[#0A192F] rounded-xl border border-white/5 p-8 text-center text-[#8892B0]">
-            {t('user.no_downloads')}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab.key ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#112240] text-[#8892B0] border border-white/5 hover:text-[#E6F1FF]'}`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+            {tab.count !== undefined && tab.count > 0 && (
+              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${activeTab === tab.key ? 'bg-[#0A192F]/20 text-[#0A192F]' : 'bg-[#FFB300]/10 text-[#FFB300]'}`}>{tab.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
+        {/* ─── Inquiries Tab ─── */}
+        {activeTab === 'inquiries' && (
+          <div className="p-6">
+            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-[#FFB300]" />
+              {t('user.inquiry_history', 'Inquiry History')}
+            </h3>
+            {inquiriesLoading ? (
+              <div className="text-center py-12 text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+            ) : inquiries.length === 0 ? (
+              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
+                <FileText className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
+                <p className="text-[#8892B0]">{t('user.no_inquiries', 'No inquiries yet. Submit one from the homepage!')}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {inquiries.map((inq: any) => {
+                  const st = statusLabel(inq.status);
+                  const isExpanded = expandedInquiry === inq.id;
+                  return (
+                    <div key={inq.id} className="bg-[#0A192F] rounded-lg border border-white/5 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedInquiry(isExpanded ? null : inq.id)}
+                        className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.02] transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-[#E6F1FF] truncate">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${st.color}`}>{st.label}</span>
+                          </div>
+                          <p className="text-xs text-[#8892B0] mt-1">
+                            {inq.company && `${inq.company} · `}
+                            {new Date(inq.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Eye className={`w-4 h-4 text-[#8892B0] transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-2 text-sm">
+                          <div className="grid grid-cols-2 gap-2">
+                            {inq.name && <div><span className="text-[#8892B0]">{t('form.name', 'Name')}:</span> <span className="text-[#E6F1FF]">{inq.name}</span></div>}
+                            {inq.email && <div><span className="text-[#8892B0]">{t('form.email', 'Email')}:</span> <span className="text-[#E6F1FF]">{inq.email}</span></div>}
+                            {inq.phone && <div><span className="text-[#8892B0]">{t('form.phone', 'Phone')}:</span> <span className="text-[#E6F1FF]">{inq.phone}</span></div>}
+                            {inq.vehicleModel && <div><span className="text-[#8892B0]">{t('form.vehicle', 'Vehicle')}:</span> <span className="text-[#E6F1FF]">{inq.vehicleModel}</span></div>}
+                            {inq.quantity && <div><span className="text-[#8892B0]">{t('form.quantity', 'Qty')}:</span> <span className="text-[#E6F1FF]">{inq.quantity}</span></div>}
+                          </div>
+                          {inq.message && (
+                            <div className="mt-2 p-3 bg-[#112240] rounded-md text-[#8892B0] whitespace-pre-wrap text-xs">{inq.message}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* ─── Favorites Tab ─── */}
+        {activeTab === 'favorites' && (
+          <div className="p-6">
+            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
+              <Heart className="w-5 h-5 mr-2 text-[#FFB300]" />
+              {t('user.my_favorites', 'Favorite Products')}
+            </h3>
+            {favoritesLoading ? (
+              <div className="text-center py-12 text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+            ) : favorites.length === 0 ? (
+              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
+                <Heart className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
+                <p className="text-[#8892B0]">{t('user.no_favorites', 'No favorites yet. Browse products and tap the heart icon!')}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {favorites.map((prod: any) => (
+                  <div key={prod.favDocId} className="bg-[#0A192F] rounded-lg border border-white/5 overflow-hidden flex">
+                    {prod.images?.[0] && (
+                      <img src={prod.images[0]} alt={prod.title} className="w-24 h-24 object-cover flex-shrink-0" />
+                    )}
+                    <div className="flex-1 p-3 min-w-0 flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-sm font-medium text-[#E6F1FF] truncate">{prod.title}</h4>
+                        <p className="text-xs text-[#8892B0] mt-0.5">{prod.category}</p>
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <a href={`/products/${prod.id}`} className="text-xs text-[#FFB300] hover:underline">{t('user.view_product', 'View')}</a>
+                        <button onClick={() => removeFavorite(prod.favDocId)} className="text-[#8892B0] hover:text-red-400 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Order Tracking Tab ─── */}
+        {activeTab === 'tracking' && (
+          <div className="p-6">
+            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
+              <Package className="w-5 h-5 mr-2 text-[#FFB300]" />
+              {t('user.order_tracking', 'Order Tracking')}
+            </h3>
+            {inquiries.filter(i => i.status === 'processing' || i.status === 'processed').length === 0 ? (
+              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
+                <Package className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
+                <p className="text-[#8892B0]">{t('user.no_orders', 'No active orders. Your inquiries will appear here once they are being processed.')}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {inquiries.filter(i => i.status !== 'new').map((inq: any) => {
+                  const steps = ['new', 'processing', 'processed', 'closed'];
+                  const stepLabels = [
+                    t('user.step_submitted', 'Submitted'),
+                    t('user.step_reviewing', 'Reviewing'),
+                    t('user.step_replied', 'Replied'),
+                    t('user.step_closed', 'Closed'),
+                  ];
+                  const currentStep = steps.indexOf(inq.status);
+                  return (
+                    <div key={inq.id} className="bg-[#0A192F] rounded-lg border border-white/5 p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-medium text-[#E6F1FF]">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</h4>
+                        <span className="text-xs text-[#8892B0]">{new Date(inq.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      {/* Progress Steps */}
+                      <div className="flex items-center">
+                        {steps.map((step, i) => (
+                          <div key={step} className="flex-1 flex items-center">
+                            <div className={`flex flex-col items-center flex-1`}>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${i <= currentStep ? 'bg-[#FFB300] border-[#FFB300] text-[#0A192F]' : 'bg-[#112240] border-white/10 text-[#8892B0]'}`}>
+                                {i < currentStep ? '✓' : i + 1}
+                              </div>
+                              <span className={`text-[10px] mt-1 text-center ${i <= currentStep ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>{stepLabels[i]}</span>
+                            </div>
+                            {i < steps.length - 1 && (
+                              <div className={`h-0.5 flex-1 mx-1 ${i < currentStep ? 'bg-[#FFB300]' : 'bg-white/10'}`} />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

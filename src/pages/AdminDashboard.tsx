@@ -3,13 +3,50 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useStore } from '../store/useStore';
 import { Navigate } from 'react-router-dom';
-import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Activity, RefreshCw, Edit, ShieldCheck, FileDown, Layers, Video, Image as ImageIcon, Share2, Mail, CheckCircle, Phone } from 'lucide-react';
+import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Activity, RefreshCw, Edit, ShieldCheck, FileDown, Layers, Video, Image as ImageIcon, Share2, Mail, CheckCircle, Phone, Send, ClipboardList, Calendar } from 'lucide-react';
 import { apiUrl } from '../lib/api';
+import { uploadFileToStorage, deleteFileFromStorage } from '../lib/storage';
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Firebase Storage allows much more; keep a sane UX cap.
+
+/**
+ * Uploads a file to Firebase Storage (primary backend) and returns the
+ * resulting download URL. Falls back to the Render-hosted /api/upload
+ * endpoint only when Storage rejects the upload, which keeps the workflow
+ * resilient even before Storage rules are configured.
+ */
+async function uploadFile(file: File, folder = 'uploads'): Promise<string> {
+  try {
+    return await uploadFileToStorage(file, folder);
+  } catch (storageErr) {
+    console.warn('[upload] Firebase Storage failed, falling back to Render API:', storageErr);
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Upload failed (${response.status}): ${text.substring(0, 200)}`);
+    }
+    const data = await response.json();
+    return data.url as string;
+  }
+}
+
+/**
+ * Deletes a previously uploaded asset. Dispatches based on URL host:
+ * - Firebase Storage download URLs   -> deleteObject via SDK
+ * - Legacy /uploads/* (Render disk)  -> POST /api/delete-file
+ * Silently succeeds for unknown URLs so callers don't need to branch.
+ */
 const deleteFileFromServer = async (fileUrl: string) => {
-  if (!fileUrl || !/\/uploads\//.test(fileUrl)) return true;
+  if (!fileUrl || typeof fileUrl !== 'string') return true;
+  if (fileUrl.includes('firebasestorage.googleapis.com')) {
+    await deleteFileFromStorage(fileUrl);
+    return true;
+  }
+  if (!/\/uploads\//.test(fileUrl)) return true;
   try {
     const response = await fetch(apiUrl('/api/delete-file'), {
       method: 'POST',
@@ -41,6 +78,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
   const navItems = [
     { id: 'dashboard', label: t('admin.dashboard'), icon: Activity },
     { id: 'messages', label: t('admin.messages'), icon: MessageSquare, badge: unreadCount },
+    { id: 'tasks', label: t('admin.tasks', 'Follow-up Tasks'), icon: ClipboardList },
     { id: 'products', label: t('admin.products'), icon: Package },
     { id: 'categories', label: t('admin.categories'), icon: Layers },
     { id: 'regions', label: t('admin.regions'), icon: MapPin },
@@ -108,6 +146,7 @@ export default function AdminDashboard() {
           {activeTab === 'categories' && <CategoriesManager />}
           {activeTab === 'regions' && <RegionsManager />}
           {activeTab === 'messages' && <MessagesManager />}
+          {activeTab === 'tasks' && <TasksManager />}
           {activeTab === 'qualifications' && <QualificationsManager />}
           {activeTab === 'translations' && <TranslationsManager />}
           {activeTab === 'hero-stylist' && <HeroHeadlineStylist />}
@@ -171,20 +210,12 @@ function CertificatesManager() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const response = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`Upload failed (${response.status}): ${text.substring(0, 100)}`);
-        }
-        const data = await response.json();
-        setNewCert({ ...newCert, imageUrl: data.url });
-      } catch (error: any) {
-        alert(`${t('admin.upload_failed')}: ${error.message}`);
-      }
+    if (!file) return;
+    try {
+      const url = await uploadFile(file, 'certificates');
+      setNewCert({ ...newCert, imageUrl: url });
+    } catch (error: any) {
+      alert(`${t('admin.upload_failed')}: ${error.message}`);
     }
   };
 
@@ -1110,50 +1141,19 @@ function ProductsManager() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const MAX_FILE_SIZE = 15 * 1024 * 1024;
-      if (file.size > MAX_FILE_SIZE) {
-        alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB). ${t('admin.content_too_large')}`);
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch(apiUrl('/api/upload'), {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = `Upload failed (${response.status})`;
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.error || errorMessage;
-          } catch (e) {
-            console.error('Non-JSON error response:', text.substring(0, 500));
-            if (response.status === 413) errorMessage = t('admin.file_too_large', 'File too large');
-          }
-          throw new Error(errorMessage);
-        }
-
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Invalid content type:', contentType, 'Body:', text.substring(0, 500));
-          throw new Error('Server returned invalid response format (Expected JSON)');
-        }
-
-        const data = await response.json();
-        const newUrls = [...newProduct.imageUrls];
-        newUrls[index] = data.url;
-        setNewProduct({ ...newProduct, imageUrls: newUrls });
-      } catch (error: any) {
-        console.error('Upload error:', error);
-        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
-      }
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB). ${t('admin.content_too_large')}`);
+      return;
+    }
+    try {
+      const url = await uploadFile(file, 'products');
+      const newUrls = [...newProduct.imageUrls];
+      newUrls[index] = url;
+      setNewProduct({ ...newProduct, imageUrls: newUrls });
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
     }
   };
 
@@ -1259,15 +1259,11 @@ function ProductsManager() {
                               alert(t('admin.file_too_large'));
                               return;
                             }
-                            const formData = new FormData();
-                            formData.append('file', file);
                             try {
-                              const res = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
-                              if (!res.ok) throw new Error('Upload failed');
-                              const data = await res.json();
-                              setNewProduct({ ...newProduct, videoUrl: data.url });
-                            } catch (error) {
-                              alert(t('admin.upload_failed'));
+                              const url = await uploadFile(file, 'product-videos');
+                              setNewProduct({ ...newProduct, videoUrl: url });
+                            } catch (error: any) {
+                              alert(`${t('admin.upload_failed')}: ${error?.message || ''}`);
                             }
                           }
                         }}
@@ -1306,15 +1302,11 @@ function ProductsManager() {
                             alert(t('admin.file_too_large'));
                             return;
                           }
-                          const formData = new FormData();
-                          formData.append('file', file);
                           try {
-                            const res = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
-                            if (!res.ok) throw new Error('Upload failed');
-                            const data = await res.json();
-                            setNewProduct({ ...newProduct, catalogUrl: data.url });
-                          } catch (error) {
-                            alert(t('admin.upload_failed'));
+                            const url = await uploadFile(file, 'catalogs');
+                            setNewProduct({ ...newProduct, catalogUrl: url });
+                          } catch (error: any) {
+                            alert(`${t('admin.upload_failed')}: ${error?.message || ''}`);
                           }
                         }
                       }} 
@@ -1509,6 +1501,14 @@ function MessagesManager() {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'processed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [replies, setReplies] = useState<Record<string, any[]>>({});
+  const [expandedThread, setExpandedThread] = useState<string | null>(null);
+  const { siteSettings } = useStore();
 
   useEffect(() => {
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'));
@@ -1522,6 +1522,47 @@ function MessagesManager() {
 
     return () => unsubscribe();
   }, []);
+
+  const filteredMessages = messages.filter(m => {
+    if (filterStatus !== 'all' && m.status !== filterStatus) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return (
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.company || '').toLowerCase().includes(q) ||
+        (m.email || '').toLowerCase().includes(q) ||
+        (m.phone || '').toLowerCase().includes(q) ||
+        (m.partNeed || '').toLowerCase().includes(q) ||
+        (m.vehicleModel || '').toLowerCase().includes(q) ||
+        (m.message || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const handleExportCSV = () => {
+    const headers = ['Date', 'Status', 'Company', 'Name', 'Email', 'Phone', 'Vehicle Model', 'Part Need', 'Quantity', 'Message'];
+    const rows = filteredMessages.map(m => [
+      m.createdAt ? new Date(m.createdAt).toLocaleString() : '',
+      m.status || '',
+      (m.company || '').replace(/"/g, '""'),
+      (m.name || '').replace(/"/g, '""'),
+      m.email || '',
+      m.phone || '',
+      (m.vehicleModel || '').replace(/"/g, '""'),
+      (m.partNeed || '').replace(/"/g, '""'),
+      m.quantity || '',
+      (m.message || '').replace(/"/g, '""').replace(/\n/g, ' '),
+    ]);
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inquiries_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
     try {
@@ -1542,39 +1583,116 @@ function MessagesManager() {
     }
   };
 
-  const handleReply = (email: string, name: string) => {
+  const handleMailtoReply = (email: string, name: string) => {
     const subject = encodeURIComponent(t('admin.reply_subject', 'Reply to your inquiry - Vida Auto'));
     const body = encodeURIComponent(t('admin.reply_greeting', { name, defaultValue: `Hello ${name},` }));
     window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+  };
+
+  const loadReplies = async (messageId: string) => {
+    try {
+      const q = query(collection(db, 'messages', messageId, 'replies'), orderBy('createdAt', 'asc'));
+      const snap = await getDocs(q);
+      setReplies(prev => ({ ...prev, [messageId]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+    } catch (err) {
+      console.error('Failed to load replies:', err);
+    }
+  };
+
+  const handleToggleThread = async (messageId: string) => {
+    if (expandedThread === messageId) {
+      setExpandedThread(null);
+      return;
+    }
+    setExpandedThread(messageId);
+    if (!replies[messageId]) await loadReplies(messageId);
+  };
+
+  const handleSendReply = async (messageId: string, customerEmail: string, customerName: string) => {
+    if (!replyText.trim()) return;
+    setReplySending(true);
+    try {
+      const replyDoc = {
+        body: replyText.trim(),
+        from: 'admin',
+        createdAt: new Date().toISOString(),
+      };
+      await addDoc(collection(db, 'messages', messageId, 'replies'), replyDoc);
+      // Mark as processed
+      await setDoc(doc(db, 'messages', messageId), { status: 'processed' }, { merge: true });
+      // Send email if SMTP configured
+      const { buildSmtp, sendReplyEmail } = await import('../lib/email');
+      const smtp = buildSmtp(siteSettings || {});
+      if (smtp && customerEmail) {
+        sendReplyEmail(
+          smtp,
+          customerEmail,
+          `Re: Your inquiry — Vida Auto`,
+          replyText.trim(),
+        ).catch(() => {});
+      }
+      // Refresh thread
+      await loadReplies(messageId);
+      setReplyText('');
+      setReplyingTo(null);
+    } catch (err) {
+      console.error('Failed to send reply:', err);
+      alert(t('common.submit_failed', 'Failed. Please try again.'));
+    } finally {
+      setReplySending(false);
+    }
   };
 
   if (loading) return <div className="text-[#8892B0] p-8 text-center">{t('admin.loading')}</div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.messages_management', 'Message Board Management')}</h2>
-        <div className="text-sm text-[#8892B0]">
-          {messages.filter(m => m.status === 'new').length} {t('admin.unread')} / {messages.length} {t('admin.total')}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="text-sm text-[#8892B0]">
+            {messages.filter(m => m.status === 'new').length} {t('admin.unread')} / {messages.length} {t('admin.total')}
+          </div>
+          <button onClick={handleExportCSV} className="px-3 py-1.5 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] text-xs font-medium transition-colors flex items-center gap-1">
+            <FileDown className="w-3.5 h-3.5" /> CSV
+          </button>
         </div>
+      </div>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="flex gap-1 bg-[#0A192F] p-1 rounded-lg border border-white/5">
+          {(['all', 'new', 'processed'] as const).map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${filterStatus === s ? 'bg-[#FFB300] text-[#0A192F]' : 'text-[#8892B0] hover:text-white'}`}>
+              {s === 'all' ? t('admin.all', 'All') : s === 'new' ? t('admin.unread', 'New') : t('admin.processed_status', 'Processed')}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder={t('admin.search_messages', 'Search by company, name, email, part...')}
+          className="flex-1 px-3 py-2 border border-white/10 bg-[#0A192F] text-white rounded-lg text-sm focus:outline-none focus:border-[#FFB300]/50 placeholder:text-[#8892B0]/50"
+        />
       </div>
       
       <div className="space-y-4">
-        {messages.map(m => (
+        {filteredMessages.map(m => (
           <div key={m.id} className={`p-5 rounded-xl border transition-all ${m.status === 'new' ? 'bg-[#1a2c4e] border-[#FFB300]/30' : 'bg-[#0A192F] border-white/5'}`}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${m.status === 'new' ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#112240] text-[#8892B0]'}`}>
-                  {m.name.charAt(0).toUpperCase()}
+                  {(m.company || m.name || m.email || '?').charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <div className="font-bold text-[#E6F1FF] flex items-center gap-2">
-                    {m.name}
+                    {m.company || m.name || t('admin.no_name', 'Unnamed')}
                     {m.status === 'new' && <span className="w-2 h-2 bg-[#FFB300] rounded-full animate-pulse"></span>}
                   </div>
-                  <div className="text-[#8892B0] text-sm flex items-center gap-1">
-                    <Mail className="w-3 h-3" />
-                    {m.email}
+                  <div className="text-[#8892B0] text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {m.email}</span>
+                    {m.phone && <span>{m.phone}</span>}
+                    {m.name && m.company && <span className="text-[#8892B0]/70">· {m.name}</span>}
                   </div>
                 </div>
               </div>
@@ -1590,11 +1708,43 @@ function MessagesManager() {
                   <CheckCircle className="w-5 h-5" />
                 </button>
                 <button 
-                  onClick={() => handleReply(m.email, m.name)}
+                  onClick={() => { setReplyingTo(replyingTo === m.id ? null : m.id); setReplyText(''); }}
+                  className={`p-2 rounded-lg transition-colors ${replyingTo === m.id ? 'bg-[#FFB300]/20 text-[#FFB300]' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'}`}
+                  title={t('admin.reply', 'Reply')}
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => handleMailtoReply(m.email, m.name || m.company || '')}
                   className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"
-                  title={t('admin.reply')}
+                  title={t('admin.reply_email', 'Reply via Email Client')}
                 >
                   <Mail className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={async () => {
+                    const dueDate = prompt(t('admin.task_due_prompt', 'Follow-up date (YYYY-MM-DD):'), new Date(Date.now() + 86400000).toISOString().slice(0, 10));
+                    if (!dueDate) return;
+                    try {
+                      await addDoc(collection(db, 'tasks'), {
+                        messageId: m.id,
+                        title: `${t('admin.follow_up', 'Follow up')}: ${m.company || m.name || m.email}`,
+                        description: `${m.partNeed ? m.partNeed + ' — ' : ''}${m.message?.slice(0, 100) || ''}`,
+                        customerEmail: m.email || '',
+                        customerName: m.name || m.company || '',
+                        dueDate,
+                        status: 'pending',
+                        priority: 'medium',
+                        reminderSent: false,
+                        createdAt: new Date().toISOString(),
+                      });
+                      alert(t('admin.task_created', 'Follow-up task created!'));
+                    } catch (err) { console.error(err); alert('Failed'); }
+                  }}
+                  className="p-2 bg-purple-500/10 text-purple-400 rounded-lg hover:bg-purple-500/20 transition-colors"
+                  title={t('admin.create_task', 'Create Follow-up Task')}
+                >
+                  <ClipboardList className="w-5 h-5" />
                 </button>
                 <button 
                   onClick={() => handleDelete(m.id)}
@@ -1606,10 +1756,95 @@ function MessagesManager() {
               </div>
             </div>
             
-            <div className="bg-[#112240] p-4 rounded-lg text-[#E6F1FF]/90 text-sm leading-relaxed whitespace-pre-wrap">
-              {m.message}
-            </div>
+            {(m.vehicleModel || m.partNeed || m.quantity) && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                {m.vehicleModel && (
+                  <div className="bg-[#0A192F] border border-white/5 px-3 py-2 rounded-lg">
+                    <div className="text-[10px] text-[#8892B0] uppercase tracking-wider">{t('contact.vehicle_model', 'Vehicle Model')}</div>
+                    <div className="text-sm text-[#E6F1FF]">{m.vehicleModel}</div>
+                  </div>
+                )}
+                {m.partNeed && (
+                  <div className="bg-[#0A192F] border border-white/5 px-3 py-2 rounded-lg">
+                    <div className="text-[10px] text-[#8892B0] uppercase tracking-wider">{t('contact.part_need', 'Part Needed')}</div>
+                    <div className="text-sm text-[#E6F1FF]">{m.partNeed}</div>
+                  </div>
+                )}
+                {m.quantity && (
+                  <div className="bg-[#0A192F] border border-white/5 px-3 py-2 rounded-lg">
+                    <div className="text-[10px] text-[#8892B0] uppercase tracking-wider">{t('contact.quantity', 'Quantity')}</div>
+                    <div className="text-sm text-[#E6F1FF]">{m.quantity}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {m.message && (
+              <div className="bg-[#112240] p-4 rounded-lg text-[#E6F1FF]/90 text-sm leading-relaxed whitespace-pre-wrap">
+                {m.message}
+              </div>
+            )}
             
+            {/* Reply input */}
+            {replyingTo === m.id && (
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  placeholder={t('admin.reply_placeholder', 'Type your reply here...')}
+                  rows={4}
+                  className="w-full px-4 py-3 bg-[#112240] text-white rounded-lg border border-[#FFB300]/30 focus:outline-none focus:border-[#FFB300]/60 text-sm resize-none placeholder:text-[#8892B0]/50"
+                  autoFocus
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-[#8892B0]">
+                    {siteSettings?.smtpHost ? t('admin.reply_will_email', 'Reply will also be sent to customer via email.') : t('admin.reply_no_smtp', 'SMTP not configured — reply will only be saved here.')}
+                  </p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setReplyingTo(null); setReplyText(''); }} className="px-3 py-1.5 text-[#8892B0] text-xs hover:text-white">{t('admin.cancel', 'Cancel')}</button>
+                    <button
+                      type="button"
+                      disabled={!replyText.trim() || replySending}
+                      onClick={() => handleSendReply(m.id, m.email, m.name || m.company || '')}
+                      className="px-4 py-1.5 bg-[#FFB300] text-[#0A192F] rounded-md text-xs font-bold hover:bg-[#FFCA28] transition-all disabled:opacity-40 flex items-center gap-1"
+                    >
+                      {replySending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                      {t('admin.send_reply', 'Send Reply')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Conversation thread */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => handleToggleThread(m.id)}
+                className="text-[11px] text-[#8892B0] hover:text-[#FFB300] transition-colors flex items-center gap-1"
+              >
+                <MessageSquare className="w-3 h-3" />
+                {expandedThread === m.id ? t('admin.hide_thread', 'Hide conversation') : t('admin.show_thread', 'Show conversation')}
+                {replies[m.id] && replies[m.id].length > 0 && ` (${replies[m.id].length})`}
+              </button>
+              {expandedThread === m.id && replies[m.id] && (
+                <div className="mt-2 space-y-2 pl-4 border-l-2 border-[#FFB300]/20">
+                  {replies[m.id].length === 0 && (
+                    <p className="text-xs text-[#8892B0] italic py-2">{t('admin.no_replies', 'No replies yet.')}</p>
+                  )}
+                  {replies[m.id].map((r: any) => (
+                    <div key={r.id} className="bg-[#112240] p-3 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#FFB300]">{r.from === 'admin' ? 'Admin' : 'Customer'}</span>
+                        <span className="text-[10px] text-[#8892B0] font-mono">{r.createdAt ? new Date(r.createdAt).toLocaleString() : ''}</span>
+                      </div>
+                      <p className="text-sm text-[#E6F1FF]/90 whitespace-pre-wrap">{r.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {m.status === 'processed' && (
               <div className="mt-3 flex items-center gap-2 text-[10px] text-green-400 uppercase tracking-widest font-bold">
                 <CheckCircle className="w-3 h-3" />
@@ -1619,10 +1854,181 @@ function MessagesManager() {
           </div>
         ))}
         
-        {messages.length === 0 && (
+        {filteredMessages.length === 0 && (
           <div className="text-center py-20 bg-[#0A192F] rounded-xl border border-dashed border-white/10">
             <MessageSquare className="w-12 h-12 text-[#112240] mx-auto mb-4" />
-            <p className="text-[#8892B0]">{t('admin.no_messages_found')}</p>
+            <p className="text-[#8892B0]">{searchQuery || filterStatus !== 'all' ? t('admin.no_matching_messages', 'No messages match your filters.') : t('admin.no_messages_found')}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TasksManager() {
+  const { t } = useTranslation();
+  const { siteSettings } = useStore();
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'done' | 'overdue'>('all');
+  const [isCreating, setIsCreating] = useState(false);
+  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: '', customerEmail: '', customerName: '', priority: 'medium' as 'high' | 'medium' | 'low' });
+
+  useEffect(() => {
+    const q = query(collection(db, 'tasks'), orderBy('dueDate', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTasks(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tasks');
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const filteredTasks = tasks.filter(tk => {
+    if (filterStatus === 'pending') return tk.status === 'pending';
+    if (filterStatus === 'done') return tk.status === 'done';
+    if (filterStatus === 'overdue') return tk.status === 'pending' && tk.dueDate < today;
+    return true;
+  });
+
+  const overdueCount = tasks.filter(tk => tk.status === 'pending' && tk.dueDate < today).length;
+  const pendingCount = tasks.filter(tk => tk.status === 'pending').length;
+
+  const handleToggleStatus = async (id: string, current: string) => {
+    const newStatus = current === 'pending' ? 'done' : 'pending';
+    await setDoc(doc(db, 'tasks', id), { status: newStatus, completedAt: newStatus === 'done' ? new Date().toISOString() : null }, { merge: true });
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    if (window.confirm(t('admin.confirm_delete_task', 'Delete this task?'))) {
+      await deleteDoc(doc(db, 'tasks', id));
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTask.title || !newTask.dueDate) return;
+    await addDoc(collection(db, 'tasks'), {
+      ...newTask,
+      messageId: '',
+      status: 'pending',
+      reminderSent: false,
+      createdAt: new Date().toISOString(),
+    });
+    setNewTask({ title: '', description: '', dueDate: '', customerEmail: '', customerName: '', priority: 'medium' });
+    setIsCreating(false);
+  };
+
+  const priorityColors: Record<string, string> = {
+    high: 'text-red-400 bg-red-500/10 border-red-500/20',
+    medium: 'text-[#FFB300] bg-[#FFB300]/10 border-[#FFB300]/20',
+    low: 'text-[#8892B0] bg-[#8892B0]/10 border-[#8892B0]/20',
+  };
+
+  if (loading) return <div className="text-[#8892B0] p-8 text-center">{t('admin.loading')}</div>;
+
+  return (
+    <div>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.tasks_management', 'Follow-up Tasks')}</h2>
+        <div className="flex items-center gap-3 flex-wrap">
+          {overdueCount > 0 && <span className="text-xs text-red-400 font-bold bg-red-500/10 px-2 py-1 rounded-full">{overdueCount} {t('admin.overdue', 'overdue')}</span>}
+          <span className="text-sm text-[#8892B0]">{pendingCount} {t('admin.pending', 'pending')}</span>
+          <button onClick={() => setIsCreating(true)} className="px-3 py-1.5 bg-[#FFB300] text-[#0A192F] rounded-md text-xs font-bold hover:bg-[#FFCA28] flex items-center gap-1">
+            <Plus className="w-3.5 h-3.5" /> {t('admin.new_task', 'New Task')}
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-1 bg-[#0A192F] p-1 rounded-lg border border-white/5 mb-5 w-fit">
+        {(['all', 'pending', 'overdue', 'done'] as const).map(s => (
+          <button key={s} onClick={() => setFilterStatus(s)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${filterStatus === s ? 'bg-[#FFB300] text-[#0A192F]' : 'text-[#8892B0] hover:text-white'}`}>
+            {s === 'all' ? t('admin.all', 'All') : s === 'pending' ? t('admin.pending', 'Pending') : s === 'overdue' ? t('admin.overdue', 'Overdue') : t('admin.done', 'Done')}
+          </button>
+        ))}
+      </div>
+
+      {/* Create form */}
+      {isCreating && (
+        <form onSubmit={handleCreateTask} className="mb-6 p-5 bg-[#0A192F] rounded-xl border border-[#FFB300]/30 space-y-4">
+          <h3 className="text-sm font-bold text-[#FFB300] uppercase tracking-wider">{t('admin.new_task', 'New Task')}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.task_title', 'Title')}</label>
+              <input required value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm" placeholder="e.g. Follow up with ABC Motors for brake pads" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.due_date', 'Due Date')}</label>
+              <input required type="date" value={newTask.dueDate} onChange={e => setNewTask({...newTask, dueDate: e.target.value})} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.priority', 'Priority')}</label>
+              <select value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value as any})} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm">
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.customer_email', 'Customer Email')}</label>
+              <input type="email" value={newTask.customerEmail} onChange={e => setNewTask({...newTask, customerEmail: e.target.value})} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm" placeholder="Optional" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.customer_name', 'Customer Name')}</label>
+              <input value={newTask.customerName} onChange={e => setNewTask({...newTask, customerName: e.target.value})} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm" placeholder="Optional" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.description', 'Description')}</label>
+              <textarea value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} rows={2} className="w-full px-3 py-2 bg-[#112240] text-white rounded-md border border-white/10 focus:border-[#FFB300]/50 outline-none text-sm resize-none" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 text-[#8892B0] text-sm">{t('admin.cancel', 'Cancel')}</button>
+            <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-bold">{t('admin.create', 'Create')}</button>
+          </div>
+        </form>
+      )}
+
+      {/* Task list */}
+      <div className="space-y-3">
+        {filteredTasks.map(tk => {
+          const isOverdue = tk.status === 'pending' && tk.dueDate < today;
+          return (
+            <div key={tk.id} className={`p-4 rounded-xl border transition-all ${isOverdue ? 'bg-red-900/10 border-red-500/30' : tk.status === 'done' ? 'bg-[#0A192F] border-white/5 opacity-60' : 'bg-[#0A192F] border-white/10'}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <button onClick={() => handleToggleStatus(tk.id, tk.status)} className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${tk.status === 'done' ? 'bg-green-500 border-green-500' : 'border-[#8892B0] hover:border-[#FFB300]'}`}>
+                    {tk.status === 'done' && <CheckCircle className="w-3 h-3 text-white" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className={`font-medium text-sm ${tk.status === 'done' ? 'line-through text-[#8892B0]' : 'text-[#E6F1FF]'}`}>{tk.title}</div>
+                    {tk.description && <p className="text-xs text-[#8892B0] mt-1 truncate">{tk.description}</p>}
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-mono ${isOverdue ? 'text-red-400' : 'text-[#8892B0]'}`}>
+                        <Calendar className="w-3 h-3" /> {tk.dueDate}
+                        {isOverdue && <span className="font-bold ml-1">OVERDUE</span>}
+                      </span>
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${priorityColors[tk.priority] || priorityColors.medium}`}>{tk.priority}</span>
+                      {tk.customerName && <span className="text-[10px] text-[#8892B0]">{tk.customerName}</span>}
+                      {tk.reminderSent && <span className="text-[10px] text-green-400 flex items-center gap-0.5"><Mail className="w-3 h-3" /> reminded</span>}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => handleDeleteTask(tk.id)} className="p-1.5 text-red-400/60 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {filteredTasks.length === 0 && (
+          <div className="text-center py-16 bg-[#0A192F] rounded-xl border border-dashed border-white/10">
+            <ClipboardList className="w-12 h-12 text-[#112240] mx-auto mb-4" />
+            <p className="text-[#8892B0]">{t('admin.no_tasks', 'No tasks found.')}</p>
           </div>
         )}
       </div>
@@ -1926,9 +2332,49 @@ function SettingsManager() {
       setInstagram(siteSettings.instagram || '');
       setLinkedin(siteSettings.linkedin || '');
       setFeaturesLayout(siteSettings.featuresLayout || 'classic');
+      setMetaPixelId(siteSettings.metaPixelId || '');
+      setFbCapiAccessToken(siteSettings.fbCapiAccessToken || '');
+      setFbCapiTestCode(siteSettings.fbCapiTestCode || '');
+      setWorkingHours(siteSettings.workingHours || 'MON-FRI 09:00-18:00');
+      setWorkingHoursTz(siteSettings.workingHoursTz || 'Asia/Shanghai');
+      setCrmWebhookUrl(siteSettings.crmWebhookUrl || '');
+      setCrmWebhookHeaders(siteSettings.crmWebhookHeaders || '');
+      setCrmWebhookEnabled(siteSettings.crmWebhookEnabled ?? false);
+      setEmailProvider(siteSettings.emailProvider || 'resend');
+      setResendApiKey(siteSettings.resendApiKey || '');
+      setSmtpHost(siteSettings.smtpHost || '');
+      setSmtpPort(siteSettings.smtpPort || '587');
+      setSmtpUser(siteSettings.smtpUser || '');
+      setSmtpPass(siteSettings.smtpPass || '');
+      setSmtpSecure(siteSettings.smtpSecure ?? false);
+      setNotifyEmails(siteSettings.notifyEmails || '');
+      setEmailNotifyEnabled(siteSettings.emailNotifyEnabled ?? false);
+      setEmailAutoReplyEnabled(siteSettings.emailAutoReplyEnabled ?? false);
     }
   }, [siteSettings]);
 
+  const [smtpHost, setSmtpHost] = useState(siteSettings?.smtpHost || '');
+  const [smtpPort, setSmtpPort] = useState(siteSettings?.smtpPort || '587');
+  const [smtpUser, setSmtpUser] = useState(siteSettings?.smtpUser || '');
+  const [smtpPass, setSmtpPass] = useState(siteSettings?.smtpPass || '');
+  const [smtpSecure, setSmtpSecure] = useState(siteSettings?.smtpSecure ?? false);
+  const [notifyEmails, setNotifyEmails] = useState(siteSettings?.notifyEmails || '');
+  const [emailNotifyEnabled, setEmailNotifyEnabled] = useState(siteSettings?.emailNotifyEnabled ?? false);
+  const [emailAutoReplyEnabled, setEmailAutoReplyEnabled] = useState(siteSettings?.emailAutoReplyEnabled ?? false);
+  const [emailProvider, setEmailProvider] = useState<'resend' | 'smtp'>(siteSettings?.emailProvider || 'resend');
+  const [resendApiKey, setResendApiKey] = useState(siteSettings?.resendApiKey || '');
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpTestResult, setSmtpTestResult] = useState<'success' | 'fail' | null>(null);
+  const [crmWebhookUrl, setCrmWebhookUrl] = useState(siteSettings?.crmWebhookUrl || '');
+  const [crmWebhookHeaders, setCrmWebhookHeaders] = useState(siteSettings?.crmWebhookHeaders || '');
+  const [crmWebhookEnabled, setCrmWebhookEnabled] = useState(siteSettings?.crmWebhookEnabled ?? false);
+  const [webhookTesting, setWebhookTesting] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<'success' | 'fail' | null>(null);
+  const [metaPixelId, setMetaPixelId] = useState(siteSettings?.metaPixelId || '');
+  const [fbCapiAccessToken, setFbCapiAccessToken] = useState(siteSettings?.fbCapiAccessToken || '');
+  const [fbCapiTestCode, setFbCapiTestCode] = useState(siteSettings?.fbCapiTestCode || '');
+  const [workingHours, setWorkingHours] = useState(siteSettings?.workingHours || 'MON-FRI 09:00-18:00');
+  const [workingHoursTz, setWorkingHoursTz] = useState(siteSettings?.workingHoursTz || 'Asia/Shanghai');
   const [logoUrl, setLogoUrl] = useState(siteSettings?.logoUrl || '');
   const [statsBgUrl, setStatsBgUrl] = useState(siteSettings?.statsBgUrl || '');
   const [statsVideoUrl, setStatsVideoUrl] = useState(siteSettings?.statsVideoUrl || '');
@@ -1960,55 +2406,20 @@ function SettingsManager() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (url: string) => void, currentUrl?: string) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const MAX_FILE_SIZE = 15 * 1024 * 1024; 
-      
-      if (file.size > MAX_FILE_SIZE) {
-        alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB)。${t('admin.content_too_large')}`);
-        return;
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB)。${t('admin.content_too_large')}`);
+      return;
+    }
+    try {
+      const url = await uploadFile(file, 'site-settings');
+      if (currentUrl) {
+        await deleteFileFromServer(currentUrl);
       }
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch(apiUrl('/api/upload'), {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = `Upload failed (${response.status})`;
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.error || errorMessage;
-          } catch (e) {
-            console.error('Non-JSON error response in SettingsManager:', text.substring(0, 500));
-            if (response.status === 413) errorMessage = t('admin.file_too_large', 'File too large');
-          }
-          throw new Error(errorMessage);
-        }
-
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Invalid content type in SettingsManager:', contentType, 'Body:', text.substring(0, 500));
-          throw new Error('Server returned invalid response format (Expected JSON)');
-        }
-
-        const data = await response.json();
-        
-        // Delete old file if it exists
-        if (currentUrl) {
-          await deleteFileFromServer(currentUrl);
-        }
-        
-        setter(data.url);
-      } catch (error: any) {
-        console.error('Upload error in SettingsManager:', error);
-        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
-      }
+      setter(url);
+    } catch (error: any) {
+      console.error('Upload error in SettingsManager:', error);
+      alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
     }
   };
 
@@ -2026,6 +2437,24 @@ function SettingsManager() {
         featuresLayout,
         statsRegions,
         statsSkus,
+        metaPixelId: metaPixelId || '',
+        fbCapiAccessToken: fbCapiAccessToken || '',
+        fbCapiTestCode: fbCapiTestCode || '',
+        workingHours,
+        workingHoursTz,
+        crmWebhookUrl: crmWebhookUrl || '',
+        crmWebhookHeaders: crmWebhookHeaders || '',
+        crmWebhookEnabled,
+        emailProvider,
+        resendApiKey: resendApiKey || '',
+        smtpHost: smtpHost || '',
+        smtpPort: smtpPort || '587',
+        smtpUser: smtpUser || '',
+        smtpPass: smtpPass || '',
+        smtpSecure,
+        notifyEmails: notifyEmails || '',
+        emailNotifyEnabled,
+        emailAutoReplyEnabled,
         updatedAt: new Date().toISOString(),
         key: 'global'
       };
@@ -2189,6 +2618,292 @@ function SettingsManager() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Analytics & Working Hours */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Activity className="w-5 h-5 mr-2" /> {t('admin.analytics_settings', 'Analytics & Working Hours')}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.meta_pixel_id', 'Meta (Facebook) Pixel ID')}</label>
+              <input type="text" value={metaPixelId} onChange={e => setMetaPixelId(e.target.value)} placeholder="123456789012345" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.meta_pixel_hint', 'Leave empty to disable. Tracks PageView on every route change and Lead on inquiry form submission.')}</p>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.fb_capi_token', 'Facebook Conversions API Access Token')}</label>
+              <input type="password" value={fbCapiAccessToken} onChange={e => setFbCapiAccessToken(e.target.value)} placeholder="EAAGxxx..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.fb_capi_hint', 'Server-side tracking via CAPI supplements the browser pixel, recovering 40-60% data lost to ad blockers and iOS privacy. Get this from Meta Events Manager → Settings → Generate Access Token.')}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.fb_capi_test_code', 'Test Event Code (optional)')}</label>
+              <input type="text" value={fbCapiTestCode} onChange={e => setFbCapiTestCode(e.target.value)} placeholder="TEST12345" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.fb_capi_test_hint', 'Use during testing. Events will appear in Events Manager → Test Events tab. Remove after verification.')}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.working_hours', 'Working Hours')}</label>
+              <input type="text" value={workingHours} onChange={e => setWorkingHours(e.target.value)} placeholder="MON-FRI 09:00-18:00;SAT 10:00-14:00" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.working_hours_hint', 'Format: MON-FRI 09:00-18:00;SAT 10:00-14:00. Separate multiple slots with semicolons.')}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.working_hours_tz', 'Timezone')}</label>
+              <select value={workingHoursTz} onChange={e => setWorkingHoursTz(e.target.value)} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm">
+                <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
+                <option value="Asia/Dubai">Asia/Dubai (UTC+4)</option>
+                <option value="Europe/London">Europe/London (UTC+0/+1)</option>
+                <option value="Europe/Berlin">Europe/Berlin (UTC+1/+2)</option>
+                <option value="America/New_York">America/New_York (UTC-5/-4)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (UTC-8/-7)</option>
+                <option value="America/Sao_Paulo">America/Sao_Paulo (UTC-3)</option>
+                <option value="Africa/Johannesburg">Africa/Johannesburg (UTC+2)</option>
+                <option value="Australia/Sydney">Australia/Sydney (UTC+10/+11)</option>
+                <option value="Asia/Kolkata">Asia/Kolkata (UTC+5:30)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Email Notifications */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <Mail className="w-5 h-5 mr-2" /> {t('admin.email_settings', 'Email Notifications')}
+          </h3>
+          <div className="space-y-4">
+            <p className="text-xs text-[#8892B0]">{t('admin.email_provider_desc', 'Choose email provider: Resend (recommended, no SMTP needed) or traditional SMTP.')}</p>
+            {/* Email Provider Toggle */}
+            <div className="flex items-center gap-4 p-3 bg-[#112240] rounded-lg border border-white/10">
+              <span className="text-sm text-[#8892B0] font-medium">{t('admin.email_provider', 'Provider')}:</span>
+              <button type="button" onClick={() => setEmailProvider('resend')} className={`px-3 py-1.5 rounded text-sm font-medium transition ${emailProvider === 'resend' ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#0A192F] text-[#8892B0] border border-white/10'}`}>Resend</button>
+              <button type="button" onClick={() => setEmailProvider('smtp')} className={`px-3 py-1.5 rounded text-sm font-medium transition ${emailProvider === 'smtp' ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#0A192F] text-[#8892B0] border border-white/10'}`}>SMTP</button>
+            </div>
+            {/* Resend Config */}
+            {emailProvider === 'resend' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#8892B0] mb-1">Resend API Key</label>
+                  <input type="password" value={resendApiKey} onChange={e => setResendApiKey(e.target.value)} placeholder="re_xxxxxxxx..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+                  <p className="mt-1 text-xs text-[#8892B0]">{t('admin.resend_hint', 'Get your API key from resend.com/api-keys. Free tier: 100 emails/day.')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.resend_test_to', 'Test Recipient Email')}</label>
+                  <div className="flex gap-2">
+                    <input type="email" id="resendTestTo" defaultValue={notifyEmails?.split(/[,;]/)[0]?.trim() || ''} placeholder="you@example.com" className="flex-1 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+                    <button
+                      type="button"
+                      disabled={!resendApiKey || smtpTesting}
+                      onClick={async () => {
+                        const toEl = document.getElementById('resendTestTo') as HTMLInputElement;
+                        const testTo = toEl?.value?.trim();
+                        if (!testTo) { alert('Enter a recipient email'); return; }
+                        setSmtpTesting(true);
+                        setSmtpTestResult(null);
+                        try {
+                          const { apiUrl } = await import('../lib/api');
+                          const res = await fetch(`${apiUrl}/api/send-email`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              resendApiKey,
+                              to: testTo,
+                              subject: '[Test] Resend Configuration — Vida Auto',
+                              html: '<p>If you received this email, your Resend API is configured correctly! ✅</p>',
+                            }),
+                          });
+                          setSmtpTestResult(res.ok ? 'success' : 'fail');
+                        } catch {
+                          setSmtpTestResult('fail');
+                        } finally {
+                          setSmtpTesting(false);
+                        }
+                      }}
+                      className="px-4 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {smtpTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {t('admin.resend_test', 'Send Test')}
+                    </button>
+                  </div>
+                  {smtpTestResult === 'success' && <span className="text-green-400 text-sm flex items-center gap-1 mt-1"><CheckCircle className="w-4 h-4" /> {t('admin.resend_test_ok', 'Test email sent via Resend!')}</span>}
+                  {smtpTestResult === 'fail' && <span className="text-red-400 text-sm mt-1">{t('admin.resend_test_fail', 'Failed. Check API key and recipient.')}</span>}
+                </div>
+              </div>
+            )}
+            {/* SMTP Config */}
+            {emailProvider === 'smtp' && (<div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">SMTP Host</label>
+                <input type="text" value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.gmail.com" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">Port</label>
+                <input type="text" value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.smtp_user', 'SMTP Username / Email')}</label>
+                <input type="text" value={smtpUser} onChange={e => setSmtpUser(e.target.value)} placeholder="noreply@yourdomain.com" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.smtp_pass', 'SMTP Password / App Password')}</label>
+                <input type="password" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={smtpSecure} onChange={e => setSmtpSecure(e.target.checked)} className="sr-only peer" />
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <span className="text-sm text-[#8892B0]">SSL/TLS ({t('admin.smtp_secure_hint', 'Enable for port 465, disable for 587 with STARTTLS')})</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={!smtpHost || !smtpUser || !smtpPass || smtpTesting}
+                onClick={async () => {
+                  setSmtpTesting(true);
+                  setSmtpTestResult(null);
+                  try {
+                    const { apiUrl } = await import('../lib/api');
+                    const res = await fetch(`${apiUrl}/api/send-email`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        smtp: { host: smtpHost, port: smtpPort, user: smtpUser, pass: smtpPass, secure: smtpSecure },
+                        to: smtpUser,
+                        subject: '[Test] SMTP Configuration — Vida Auto',
+                        html: '<p>If you received this email, your SMTP settings are configured correctly! ✅</p>',
+                      }),
+                    });
+                    setSmtpTestResult(res.ok ? 'success' : 'fail');
+                  } catch {
+                    setSmtpTestResult('fail');
+                  } finally {
+                    setSmtpTesting(false);
+                  }
+                }}
+                className="px-4 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {smtpTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {t('admin.smtp_test', 'Send Test Email')}
+              </button>
+              {smtpTestResult === 'success' && <span className="text-green-400 text-sm flex items-center gap-1"><CheckCircle className="w-4 h-4" /> {t('admin.smtp_test_ok', 'Test email sent to your SMTP address!')}</span>}
+              {smtpTestResult === 'fail' && <span className="text-red-400 text-sm">{t('admin.smtp_test_fail', 'Failed. Check host, credentials, and port.')}</span>}
+            </div>
+            </div>)}
+            <hr className="border-white/5" />
+            <h4 className="text-sm font-bold text-[#E6F1FF]">{t('admin.notification_rules', 'Notification Rules')}</h4>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={emailNotifyEnabled} onChange={e => setEmailNotifyEnabled(e.target.checked)} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+                <span className={`text-sm font-medium ${emailNotifyEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
+                  {t('admin.notify_admin', 'Notify admin/sales on new inquiry')}
+                </span>
+              </div>
+              {emailNotifyEnabled && (
+                <div>
+                  <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.notify_emails', 'Notification Emails (comma-separated)')}</label>
+                  <input type="text" value={notifyEmails} onChange={e => setNotifyEmails(e.target.value)} placeholder="sales@vidaauto.com, boss@vidaauto.com" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={emailAutoReplyEnabled} onChange={e => setEmailAutoReplyEnabled(e.target.checked)} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+                <span className={`text-sm font-medium ${emailAutoReplyEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
+                  {t('admin.auto_reply', 'Auto-reply confirmation to customer')}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* CRM Webhook Integration */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <MessageSquare className="w-5 h-5 mr-2" /> {t('admin.crm_integration', 'CRM Webhook Integration')}
+          </h3>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={crmWebhookEnabled} onChange={e => setCrmWebhookEnabled(e.target.checked)} className="sr-only peer" />
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <span className={`text-sm font-medium ${crmWebhookEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
+                {crmWebhookEnabled ? t('admin.crm_enabled', 'CRM Push Enabled') : t('admin.crm_disabled', 'CRM Push Disabled')}
+              </span>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.crm_webhook_url', 'Webhook URL (POST)')}</label>
+              <input type="text" value={crmWebhookUrl} onChange={e => setCrmWebhookUrl(e.target.value)} placeholder="https://crm.example.com/api/leads" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.crm_webhook_hint', 'Each form submission will POST a JSON payload to this URL.')}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.crm_webhook_headers', 'Custom Headers (JSON)')}</label>
+              <textarea value={crmWebhookHeaders} onChange={e => setCrmWebhookHeaders(e.target.value)} placeholder='{"X-API-Key": "your-secret-key", "Authorization": "Bearer xxx"}' rows={3} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm resize-none" />
+              <p className="mt-1 text-xs text-[#8892B0]">{t('admin.crm_headers_hint', 'Optional. Add authentication headers your CRM API requires. Must be valid JSON.')}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={!crmWebhookUrl || webhookTesting}
+                onClick={async () => {
+                  setWebhookTesting(true);
+                  setWebhookTestResult(null);
+                  try {
+                    const extraHeaders = crmWebhookHeaders ? JSON.parse(crmWebhookHeaders) : {};
+                    const res = await fetch(crmWebhookUrl, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+                      body: JSON.stringify({
+                        name: 'Test User',
+                        company: 'Test Company',
+                        email: 'test@example.com',
+                        phone: '+8613800138000',
+                        vehicleModel: 'Toyota Camry 2024',
+                        partNeed: 'Brake Pads',
+                        quantity: '100',
+                        message: 'This is a test inquiry from Vida Auto admin panel.',
+                        source: 'webhook_test',
+                        createdAt: new Date().toISOString(),
+                      }),
+                    });
+                    setWebhookTestResult(res.ok ? 'success' : 'fail');
+                  } catch {
+                    setWebhookTestResult('fail');
+                  } finally {
+                    setWebhookTesting(false);
+                  }
+                }}
+                className="px-4 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {webhookTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {t('admin.crm_test', 'Send Test Payload')}
+              </button>
+              {webhookTestResult === 'success' && <span className="text-green-400 text-sm flex items-center gap-1"><CheckCircle className="w-4 h-4" /> {t('admin.crm_test_ok', 'Success! CRM received the test.')}</span>}
+              {webhookTestResult === 'fail' && <span className="text-red-400 text-sm">{t('admin.crm_test_fail', 'Failed. Check URL, headers, and CORS settings.')}</span>}
+            </div>
+          </div>
+          <div className="mt-4 p-4 bg-[#112240] rounded-lg border border-white/5">
+            <h4 className="text-xs text-[#8892B0] uppercase tracking-wider font-bold mb-2">{t('admin.crm_payload_preview', 'Payload Format (JSON)')}</h4>
+            <pre className="text-xs text-[#E6F1FF]/70 font-mono whitespace-pre overflow-x-auto">{`{
+  "name": "John Doe",
+  "company": "ABC Motors",
+  "email": "john@abc.com",
+  "phone": "+8613800138000",
+  "vehicleModel": "Toyota Camry 2024",
+  "partNeed": "Brake Pads",
+  "quantity": "500",
+  "message": "Need OEM quality...",
+  "source": "home_inquiry_form",
+  "createdAt": "2025-05-19T04:00:00.000Z"
+}`}</pre>
           </div>
         </div>
 
@@ -2722,50 +3437,20 @@ function QualificationsManager() {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
-      if (file.size > MAX_FILE_SIZE) {
-        alert(`${t('admin.file_too_large')} (${(file.size / 1024 / 1024).toFixed(1)}MB). ${t('admin.content_too_large')}`);
-        return;
-      }
-
-      setIsUploading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch(apiUrl('/api/upload'), {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = `Upload failed (${response.status})`;
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.error || errorMessage;
-          } catch (e) {
-            console.error('Non-JSON error response in QualificationsManager:', text.substring(0, 500));
-          }
-          throw new Error(errorMessage);
-        }
-
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Invalid content type in QualificationsManager:', contentType, 'Body:', text.substring(0, 500));
-          throw new Error('Server returned invalid response format (Expected JSON)');
-        }
-
-        const data = await response.json();
-        setNewQual({ ...newQual, fileUrl: data.url, fileName: data.name });
-      } catch (error: any) {
-        console.error('Upload error in QualificationsManager:', error);
-        alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
-      } finally {
-        setIsUploading(false);
-      }
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`${t('admin.file_too_large')} (${(file.size / 1024 / 1024).toFixed(1)}MB). ${t('admin.content_too_large')}`);
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const url = await uploadFile(file, 'qualifications');
+      setNewQual({ ...newQual, fileUrl: url, fileName: file.name });
+    } catch (error: any) {
+      console.error('Upload error in QualificationsManager:', error);
+      alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+    } finally {
+      setIsUploading(false);
     }
   };
 
