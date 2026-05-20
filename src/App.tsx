@@ -20,6 +20,7 @@ import ProductDetail from './pages/ProductDetail';
 import UserCenter from './pages/UserCenter';
 import AdminDashboard from './pages/AdminDashboard';
 import About from './pages/About';
+import Debug from './pages/Debug';
 
 export default function App() {
   const { setUser, setUserRole, setAuthReady, setSiteSettings } = useStore();
@@ -113,6 +114,7 @@ export default function App() {
           <Route path="about" element={<About />} />
           <Route path="user" element={<UserCenter />} />
           <Route path="admin" element={<AdminDashboard />} />
+          <Route path="debug" element={<Debug />} />
         </Route>
       </Routes>
     </Router>

@@ -52,21 +52,28 @@ function AnimatedArc({ start, end }: { start: [number, number, number], end: [nu
   useFrame(({ clock }) => {
     const et = clock.getElapsedTime();
     
-    if (lineRef.current) {
+    if (lineRef.current && lineRef.current.material) {
       const material = lineRef.current.material as THREE.Material & { opacity: number };
-      material.opacity = 0.2 + Math.sin(et * 2 + startVec.x) * 0.1;
+      if (material && typeof material.opacity === 'number') {
+        material.opacity = 0.2 + Math.sin(et * 2 + startVec.x) * 0.1;
+      }
     }
 
-    if (particleRef.current) {
+    if (particleRef.current && particleRef.current.material) {
       // Each line has a different offset based on start position to avoid synchronized pulses
       const speed = 0.4;
       const t = ((et + Math.abs(startVec.x + startVec.y)) * speed) % 1;
       const pos = curve.getPoint(t);
-      particleRef.current.position.copy(pos);
-      
-      // Fade in/out at start and end
-      const opacity = Math.sin(t * Math.PI);
-      (particleRef.current.material as THREE.MeshBasicMaterial).opacity = opacity;
+      if (pos) {
+        particleRef.current.position.copy(pos);
+        
+        // Fade in/out at start and end
+        const opacity = Math.sin(t * Math.PI);
+        const mat = particleRef.current.material as THREE.MeshBasicMaterial;
+        if (mat && typeof mat.opacity === 'number') {
+          mat.opacity = opacity;
+        }
+      }
     }
   });
 
@@ -92,8 +99,11 @@ function Earth() {
   const earthRef = useRef<THREE.Mesh>(null);
   const [regions, setRegions] = useState(salesRegions);
   
-  // Load earth texture
-  const colorMap = useLoader(THREE.TextureLoader, 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg');
+  // Load earth texture — useLoader suspends via Suspense, no try/catch needed
+  const colorMap = useLoader(
+    THREE.TextureLoader,
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
+  );
 
   useEffect(() => {
     const q = query(collection(db, 'salesRegions'));
@@ -101,14 +111,16 @@ function Earth() {
       const fetched = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
-          name: data.name,
-          lat: data.lat,
-          lon: data.lng || data.lon // support both naming conventions
+          name: data.name || '',
+          lat: typeof data.lat === 'number' ? data.lat : 0,
+          lon: typeof data.lon === 'number' ? data.lon : (typeof data.lng === 'number' ? data.lng : 0)
         };
       });
       if (fetched.length > 0) {
         setRegions(fetched);
       }
+    }, (error) => {
+      console.error('Error fetching sales regions:', error);
     });
     return () => unsubscribe();
   }, []);
@@ -119,17 +131,21 @@ function Earth() {
     }
   });
 
+  if (!regions || regions.length === 0) {
+    return null;
+  }
+
   const hq = latLongToVector3(regions[0].lat, regions[0].lon, 2.02);
 
   return (
     <group ref={earthRef}>
       <Sphere args={[2, 64, 64]}>
         <meshPhongMaterial 
-          map={colorMap}
+          map={colorMap || undefined}
           color="#ffffff"
           emissive="#000000"
-          specular={new THREE.Color("#333333")}
           shininess={25}
+          wireframe={false}
         />
       </Sphere>
       

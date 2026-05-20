@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://autoparts.fit"],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type", "Authorization"]
+  }
+]

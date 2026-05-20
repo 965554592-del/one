@@ -2412,14 +2412,24 @@ function SettingsManager() {
       return;
     }
     try {
+      // 显示上传中提示
+      const uploadingMsg = `${t('admin.uploading', 'Uploading')} ${file.name}...`;
+      console.log(`[upload] ${uploadingMsg}`);
+      
       const url = await uploadFile(file, 'site-settings');
+      
       if (currentUrl) {
         await deleteFileFromServer(currentUrl);
       }
+      
       setter(url);
+      
+      // 显示成功提示
+      alert(`✅ ${t('admin.upload_success', 'Upload successful')}: ${file.name}`);
+      console.log(`[upload] Success: ${url}`);
     } catch (error: any) {
       console.error('Upload error in SettingsManager:', error);
-      alert(`${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+      alert(`❌ ${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
     }
   };
 

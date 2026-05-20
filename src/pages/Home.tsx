@@ -8,10 +8,12 @@ import { useStore } from '../store/useStore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import SEO from '../components/SEO';
+import LazyVideo from '../components/LazyVideo';
 import { trackLead } from '../lib/pixel';
 import { pushToCRM } from '../lib/webhook';
 import { buildSmtp, sendAdminNotification, sendCustomerAutoReply } from '../lib/email';
 import { sendCapiLead, generateEventId } from '../lib/capi';
+import { GlobeErrorBoundary } from '../components/GlobeErrorBoundary';
 
 const Globe = lazy(() => import('../components/Globe'));
 
@@ -240,21 +242,19 @@ export default function Home() {
       <div className="relative w-full min-h-[500px] flex flex-col justify-center items-center py-16 overflow-hidden mb-8">
         {/* Background Video/Image */}
         {siteSettings?.heroVideoUrl ? (
-          <video 
-            key={siteSettings.heroVideoUrl}
+          <LazyVideo
             src={siteSettings.heroVideoUrl}
-            autoPlay 
-            loop 
-            muted 
-            playsInline 
-            className="absolute inset-0 w-full h-full object-cover"
+            poster={siteSettings.heroBgUrl}
+            className="absolute inset-0 w-full h-full z-0 object-cover object-center"
+            lazy={false}
+            preload="metadata"
           />
         ) : siteSettings?.heroBgUrl ? (
           <div className="absolute inset-0 w-full h-full bg-cover bg-center bg-fixed" style={{ backgroundImage: `url(${siteSettings.heroBgUrl})` }}></div>
         ) : (
           <div className="absolute inset-0 w-full h-full bg-[#112240]"></div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0A192F]/70 to-[#0A192F]/90"></div>
+        <div className={`absolute inset-0 bg-gradient-to-b ${siteSettings?.heroVideoUrl ? 'from-black/10 to-black/30' : 'from-[#0A192F]/60 to-[#0A192F]/85'}`}></div>
 
         {/* Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-4 w-full flex flex-col items-center">
@@ -357,9 +357,11 @@ export default function Home() {
           <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px] mb-1 z-10">{siteSettings?.globeTitle || t('home.globe_title')}</div>
           <h2 className="text-[18px] font-semibold uppercase tracking-[1px] text-[#E6F1FF] mb-3 z-10">{siteSettings?.globeSubtitle || t('home.globe_subtitle')}</h2>
           <div className="absolute inset-0 top-16">
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-[#8892B0]">{t('home.globe_loading')}</div>}>
-              <Globe />
-            </Suspense>
+            <GlobeErrorBoundary>
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-[#8892B0]">{t('home.globe_loading')}</div>}>
+                <Globe />
+              </Suspense>
+            </GlobeErrorBoundary>
           </div>
           <div className="absolute bottom-5 left-5 z-10 pointer-events-none">
             <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px]">{siteSettings?.globeBottomTitle || t('home.current_region')}</div>
@@ -392,14 +394,12 @@ export default function Home() {
           className="md:col-span-1 md:row-span-1 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col justify-center items-center text-center relative overflow-hidden"
         >
           {siteSettings?.statsVideoUrl ? (
-            <video 
-              key={siteSettings.statsVideoUrl}
+            <LazyVideo
               src={siteSettings.statsVideoUrl}
-              autoPlay 
-              loop 
-              muted 
-              playsInline 
-              className="absolute inset-0 w-full h-full object-cover opacity-30"
+              poster={siteSettings.statsBgUrl}
+              className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
+              preload="metadata"
+              rootMargin="400px"
             />
           ) : siteSettings?.statsBgUrl ? (
             <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-30" style={{ backgroundImage: `url(${siteSettings.statsBgUrl})` }}></div>
@@ -418,14 +418,12 @@ export default function Home() {
         {/* VIDEO STORY */}
         <div className="md:col-span-2 md:row-span-1 bg-black rounded-2xl border border-white/5 flex flex-col justify-center items-center relative overflow-hidden">
           {siteSettings?.storyVideoUrl ? (
-            <video 
-              key={siteSettings.storyVideoUrl}
+            <LazyVideo
               src={siteSettings.storyVideoUrl}
-              autoPlay 
-              loop 
-              muted 
-              playsInline 
-              className="absolute inset-0 w-full h-full object-cover"
+              poster={siteSettings.storyBgUrl}
+              className="absolute inset-0 w-full h-full object-cover object-center"
+              preload="metadata"
+              rootMargin="400px"
             />
           ) : (
             <img 
