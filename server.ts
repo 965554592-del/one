@@ -7,8 +7,6 @@ import fs from "fs";
 import os from "os";
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,8 +185,6 @@ async function startServer() {
   // POST /api/transcode  (multipart/form-data, field name "file")
   // Response: the transcoded MP4 as application/octet-stream
   // ──────────────────────────────────────────────────────────
-  if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
-
   app.post("/api/transcode", (req, res) => {
     upload.single('file')(req, res, async (err) => {
       if (err) {
@@ -197,6 +193,20 @@ async function startServer() {
       }
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
+      }
+
+      // Dynamically load ffmpeg so server can boot even if modules fail to load
+      let ffmpeg: any;
+      try {
+        const ffmpegMod: any = await import("fluent-ffmpeg");
+        ffmpeg = ffmpegMod.default || ffmpegMod;
+        const ffmpegStaticMod: any = await import("ffmpeg-static");
+        const ffmpegStatic = ffmpegStaticMod.default || ffmpegStaticMod;
+        if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
+      } catch (loadErr: any) {
+        console.error("[Transcode] Failed to load ffmpeg modules:", loadErr);
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(500).json({ error: `ffmpeg unavailable: ${loadErr.message}` });
       }
 
       const inputPath = req.file.path;
