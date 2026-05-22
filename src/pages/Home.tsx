@@ -714,7 +714,7 @@ export default function Home() {
                 className="bg-[#112240] rounded-xl border border-white/5 p-5 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[140px] h-[140px]"
               >
                 {brand.imageUrl ? (
-                  <img src={brand.imageUrl} alt={brand.label} className="w-16 h-16 object-contain mb-2" />
+                  <img src={brand.imageUrl} alt={brand.label} className="w-16 h-16 object-contain mb-2 mix-blend-lighten" />
                 ) : (
                   <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
                 )}
