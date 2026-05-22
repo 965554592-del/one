@@ -320,7 +320,7 @@ export default function Home() {
         }}
       />
       {/* HERO SECTION - FULL WIDTH */}
-      <div className="relative w-full min-h-[500px] flex flex-col justify-center items-center py-16 overflow-hidden mb-8">
+      <div className="relative w-full min-h-[500px] aspect-[2408/1152] max-h-[75vh] flex flex-col justify-center items-center py-16 overflow-hidden mb-8">
         {/* Background Video/Image */}
         {siteSettings?.heroVideoUrl ? (
           <LazyVideo
