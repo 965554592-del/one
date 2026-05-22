@@ -507,6 +507,11 @@ export default function Home() {
               referrerPolicy="no-referrer" 
             />
           )}
+          {siteSettings?.statsOverlayText && (
+            <div className="absolute top-0 left-0 right-0 z-10 bg-black/50 backdrop-blur-sm px-4 py-3">
+              <p className="text-sm text-white/90 text-center font-medium">{siteSettings.statsOverlayText}</p>
+            </div>
+          )}
         </div>
 
         {/* SEARCH BOX */}

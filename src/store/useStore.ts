@@ -12,6 +12,7 @@ interface SiteSettings {
   whatsappQrUrl?: string;
   whatsappLink?: string;
   statsVideoUrl?: string;
+  statsOverlayText?: string;
   storyVideoUrl?: string;
   storyBgUrl?: string;
   factoryVideoUrl?: string;

@@ -2888,6 +2888,7 @@ function SettingsManager() {
       setLogoUrl(siteSettings.logoUrl || '');
       setStatsBgUrl(siteSettings.statsBgUrl || '');
       setStatsVideoUrl(siteSettings.statsVideoUrl || '');
+      setStatsOverlayText(siteSettings.statsOverlayText || '');
       setStoryVideoUrl(siteSettings.storyVideoUrl || '');
       setStoryBgUrl(siteSettings.storyBgUrl || '');
       setFactoryVideoUrl(siteSettings.factoryVideoUrl || '');
@@ -2964,6 +2965,7 @@ function SettingsManager() {
   const [logoUrl, setLogoUrl] = useState(siteSettings?.logoUrl || '');
   const [statsBgUrl, setStatsBgUrl] = useState(siteSettings?.statsBgUrl || '');
   const [statsVideoUrl, setStatsVideoUrl] = useState(siteSettings?.statsVideoUrl || '');
+  const [statsOverlayText, setStatsOverlayText] = useState(siteSettings?.statsOverlayText || '');
   const [storyVideoUrl, setStoryVideoUrl] = useState(siteSettings?.storyVideoUrl || '');
   const [storyBgUrl, setStoryBgUrl] = useState(siteSettings?.storyBgUrl || '');
   const [factoryVideoUrl, setFactoryVideoUrl] = useState(siteSettings?.factoryVideoUrl || '');
@@ -3027,7 +3029,7 @@ function SettingsManager() {
     try {
       const newSettings = { 
         ...siteSettings,
-        logoUrl, statsBgUrl, statsVideoUrl, storyVideoUrl, storyBgUrl, factoryVideoUrl, factoryBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
+        logoUrl, statsBgUrl, statsVideoUrl, statsOverlayText, storyVideoUrl, storyBgUrl, factoryVideoUrl, factoryBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
         starProductId, starProductTitle,
         globeTitle, globeSubtitle, globeBottomTitle, globeBottomSubtitle,
         catalogUrl, catalogTitle,
@@ -3805,6 +3807,19 @@ function SettingsManager() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Stats Overlay Text */}
+            <div className="space-y-3 md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0]">{t('admin.stats_overlay_text', 'Video Overlay Text (floating banner)')}</label>
+              <input 
+                type="text" 
+                value={statsOverlayText} 
+                onChange={e => setStatsOverlayText(e.target.value)} 
+                placeholder={t('admin.stats_overlay_placeholder', 'e.g. Premium Packaging · Safe Delivery Guaranteed')}
+                className="w-full px-4 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+              />
+              <p className="text-xs text-[#8892B0]">{t('admin.stats_overlay_hint', 'Displayed as a floating transparent banner on top of the video. Leave empty to hide.')}</p>
             </div>
 
             {/* Story Section Background Component */}
