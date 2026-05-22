@@ -83,6 +83,9 @@ export default function Home() {
     ...homeCategories
       .filter((c: any) => c.catalogUrl)
       .map((c: any) => ({ id: `cat-${c.id}`, title: c.name, type: 'PDF', size: c.name, url: c.catalogUrl })),
+    ...(!siteSettings?.catalogUrl && homeCategories.filter((c: any) => c.catalogUrl).length === 0
+      ? [{ id: 'doc-default', title: t('home.catalog_2026', 'Product Catalog 2026'), type: 'PDF', size: 'Full', url: '' }]
+      : []),
   ];
 
   const handleDownload = async (docId: string) => {
