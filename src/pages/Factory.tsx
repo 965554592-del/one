@@ -62,8 +62,10 @@ export default function Factory() {
       {/* HERO */}
       <div className="relative bg-[#112240] rounded-2xl border border-white/5 overflow-hidden mb-12">
         <div className="relative min-h-[300px] md:min-h-[400px] flex items-center">
-          {siteSettings?.storyVideoUrl ? (
-            <LazyVideo src={siteSettings.storyVideoUrl} poster={siteSettings?.storyBgUrl} className="absolute inset-0 w-full h-full object-cover opacity-30" />
+          {siteSettings?.factoryVideoUrl ? (
+            <LazyVideo src={siteSettings.factoryVideoUrl} poster={siteSettings?.factoryBgUrl} className="absolute inset-0 w-full h-full object-cover opacity-30" />
+          ) : siteSettings?.factoryBgUrl ? (
+            <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-30" style={{ backgroundImage: `url(${siteSettings.factoryBgUrl})` }} />
           ) : (
             <div className="absolute inset-0 bg-gradient-to-r from-[#0A192F] via-[#112240] to-[#0A192F]" />
           )}

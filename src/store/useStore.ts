@@ -14,6 +14,8 @@ interface SiteSettings {
   statsVideoUrl?: string;
   storyVideoUrl?: string;
   storyBgUrl?: string;
+  factoryVideoUrl?: string;
+  factoryBgUrl?: string;
   starProductId?: string;
   starProductTitle?: string;
   globeTitle?: string;

@@ -2890,6 +2890,8 @@ function SettingsManager() {
       setStatsVideoUrl(siteSettings.statsVideoUrl || '');
       setStoryVideoUrl(siteSettings.storyVideoUrl || '');
       setStoryBgUrl(siteSettings.storyBgUrl || '');
+      setFactoryVideoUrl(siteSettings.factoryVideoUrl || '');
+      setFactoryBgUrl(siteSettings.factoryBgUrl || '');
       setHeroVideoUrl(siteSettings.heroVideoUrl || '');
       setHeroBgUrl(siteSettings.heroBgUrl || '');
       setAddress(siteSettings.address || '');
@@ -2964,6 +2966,8 @@ function SettingsManager() {
   const [statsVideoUrl, setStatsVideoUrl] = useState(siteSettings?.statsVideoUrl || '');
   const [storyVideoUrl, setStoryVideoUrl] = useState(siteSettings?.storyVideoUrl || '');
   const [storyBgUrl, setStoryBgUrl] = useState(siteSettings?.storyBgUrl || '');
+  const [factoryVideoUrl, setFactoryVideoUrl] = useState(siteSettings?.factoryVideoUrl || '');
+  const [factoryBgUrl, setFactoryBgUrl] = useState(siteSettings?.factoryBgUrl || '');
   const [heroVideoUrl, setHeroVideoUrl] = useState(siteSettings?.heroVideoUrl || '');
   const [heroBgUrl, setHeroBgUrl] = useState(siteSettings?.heroBgUrl || '');
   const [address, setAddress] = useState(siteSettings?.address || '');
@@ -3023,7 +3027,7 @@ function SettingsManager() {
     try {
       const newSettings = { 
         ...siteSettings,
-        logoUrl, statsBgUrl, statsVideoUrl, storyVideoUrl, storyBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
+        logoUrl, statsBgUrl, statsVideoUrl, storyVideoUrl, storyBgUrl, factoryVideoUrl, factoryBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
         starProductId, starProductTitle,
         globeTitle, globeSubtitle, globeBottomTitle, globeBottomSubtitle,
         catalogUrl, catalogTitle,
@@ -3876,6 +3880,91 @@ function SettingsManager() {
                       <>
                         <div className="absolute inset-0 bg-cover bg-center opacity-40 group-hover:opacity-60 transition-opacity" style={{ backgroundImage: `url(${storyBgUrl})` }}></div>
                         <button type="button" onClick={() => { deleteFileFromServer(storyBgUrl); setStoryBgUrl(''); }} className="relative z-10 text-xs text-red-500 hover:underline bg-[#0A192F]/80 px-2 py-1 rounded">{t('admin.delete')}</button>
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Plus className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_image')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Factory Page Background Component */}
+            <div className="space-y-6 md:col-span-2">
+              <h4 className="text-md font-medium text-[#E6F1FF]">{t('admin.factory_bg', 'Factory Page Background')}</h4>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.factory_video_url', 'Factory Video')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <Video className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={factoryVideoUrl} 
+                          onChange={e => setFactoryVideoUrl(e.target.value)} 
+                          placeholder="https://example.com/factory.mp4"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="video/mp4" onChange={e => handleFileUpload(e, setFactoryVideoUrl, factoryVideoUrl)} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[#8892B0] mb-2">{t('admin.factory_bg_url', 'Factory Image (Fallback)')}</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <ImageIcon className="h-4 w-4 text-[#8892B0]" />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={factoryBgUrl} 
+                          onChange={e => setFactoryBgUrl(e.target.value)} 
+                          placeholder="https://example.com/factory.jpg"
+                          className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" 
+                        />
+                      </div>
+                      <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                        <Plus className="w-4 h-4 mr-1" />
+                        <span className="text-xs">{t('admin.select_file')}</span>
+                        <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setFactoryBgUrl, factoryBgUrl)} />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {factoryVideoUrl ? (
+                      <div className="flex flex-col items-center">
+                        <Video className="w-8 h-8 text-[#FFB300] mb-2" />
+                        <span className="text-xs text-[#E6F1FF] font-medium">{t('admin.video_uploaded')}</span>
+                        <button type="button" onClick={() => { deleteFileFromServer(factoryVideoUrl); setFactoryVideoUrl(''); }} className="mt-2 text-xs text-red-500 hover:underline">{t('admin.delete')}</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center opacity-40">
+                        <Video className="w-8 h-8 text-[#8892B0] mb-2" />
+                        <span className="text-xs text-[#8892B0]">{t('admin.no_video')}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="group relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-lg hover:border-[#FFB300]/50 bg-[#112240]/50 transition-all cursor-pointer overflow-hidden">
+                    {factoryBgUrl ? (
+                      <>
+                        <div className="absolute inset-0 bg-cover bg-center opacity-40 group-hover:opacity-60 transition-opacity" style={{ backgroundImage: `url(${factoryBgUrl})` }}></div>
+                        <button type="button" onClick={() => { deleteFileFromServer(factoryBgUrl); setFactoryBgUrl(''); }} className="relative z-10 text-xs text-red-500 hover:underline bg-[#0A192F]/80 px-2 py-1 rounded">{t('admin.delete')}</button>
                       </>
                     ) : (
                       <div className="flex flex-col items-center opacity-40">
