@@ -706,27 +706,27 @@ export default function Home() {
               {t('home.view_all', 'View All')} <ArrowRight className="w-4 h-4 ml-1" />
             </Link>
           </div>
-          <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
             {siteSettings.brandLogos.map((brand: any, i: number) => (
               <Link
                 key={i}
                 to={brand.categoryId ? `/products?category=${brand.categoryId}` : '/products'}
-                className="bg-[#112240] rounded-xl border border-white/5 p-5 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[140px] h-[140px]"
+                className="bg-[#112240] rounded-xl border border-white/5 p-5 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[120px] min-w-[120px] h-[120px]"
               >
                 {brand.imageUrl ? (
-                  <img src={brand.imageUrl} alt={brand.label} className="w-16 h-16 object-contain mb-2 mix-blend-lighten" />
+                  <img src={brand.imageUrl} alt={brand.label} className="w-14 h-14 object-contain mb-2 mix-blend-lighten" />
                 ) : (
-                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
+                  <div className="w-14 h-14 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
                 )}
-                <span className="text-sm font-medium text-[#E6F1FF] text-center truncate w-full">{brand.label}</span>
+                <span className="text-xs font-medium text-[#E6F1FF] text-center truncate w-full">{brand.label}</span>
               </Link>
             ))}
             <Link
               to="/products"
-              className="bg-[#FFB300]/10 rounded-xl border border-[#FFB300]/20 p-5 flex flex-col items-center justify-center hover:bg-[#FFB300]/20 transition-colors w-[140px] h-[140px]"
+              className="bg-[#FFB300]/10 rounded-xl border border-[#FFB300]/20 p-5 flex flex-col items-center justify-center hover:bg-[#FFB300]/20 transition-colors w-[120px] min-w-[120px] h-[120px]"
             >
               <ArrowRight className="w-8 h-8 text-[#FFB300] mb-2" />
-              <span className="text-sm font-medium text-[#FFB300]">{t('home.more_brands', 'More')}</span>
+              <span className="text-xs font-medium text-[#FFB300]">{t('home.more_brands', 'More')}</span>
             </Link>
           </div>
         </div>
