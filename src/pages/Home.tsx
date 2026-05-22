@@ -6,14 +6,16 @@ import { Search, CheckCircle, Send, Lightbulb, Disc, Filter, Car, LayoutGrid, Ar
 
 import { useStore } from '../store/useStore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import SEO from '../components/SEO';
 import LazyVideo from '../components/LazyVideo';
-import { trackLead } from '../lib/pixel';
+import { trackLead, trackEvent } from '../lib/pixel';
+import { gtagTrackLead, gtagEvent } from '../lib/gtag';
 import { pushToCRM } from '../lib/webhook';
 import { buildSmtp, sendAdminNotification, sendCustomerAutoReply } from '../lib/email';
 import { sendCapiLead, generateEventId } from '../lib/capi';
 import { GlobeErrorBoundary } from '../components/GlobeErrorBoundary';
+import ProfileGateModal from '../components/ProfileGateModal';
 
 const Globe = lazy(() => import('../components/Globe'));
 
@@ -23,6 +25,7 @@ export default function Home() {
   const { siteSettings, user } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [starProduct, setStarProduct] = useState<any>(null);
+  const [homeCategories, setHomeCategories] = useState<any[]>([]);
   
   // Contact Form State
   const [contactForm, setContactForm] = useState({
@@ -38,12 +41,24 @@ export default function Home() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showProfileGate, setShowProfileGate] = useState(false);
+  const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setIsLoggedIn(!!user);
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'categories'), orderBy('order', 'asc')));
+        setHomeCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) { console.error('Error fetching categories:', e); }
+    };
+    fetchCategories();
   }, []);
 
   useEffect(() => {
@@ -64,7 +79,10 @@ export default function Home() {
   }, [siteSettings?.starProductId]);
 
   const documents = [
-    { id: 'doc-1', title: siteSettings?.catalogTitle || t('home.catalog_2026', 'Product Catalog 2026'), type: 'PDF', size: 'Full', url: siteSettings?.catalogUrl },
+    ...(siteSettings?.catalogUrl ? [{ id: 'doc-full', title: siteSettings?.catalogTitle || t('home.catalog_2026', 'Product Catalog 2026'), type: 'PDF', size: 'Full', url: siteSettings?.catalogUrl }] : []),
+    ...homeCategories
+      .filter((c: any) => c.catalogUrl)
+      .map((c: any) => ({ id: `cat-${c.id}`, title: c.name, type: 'PDF', size: c.name, url: c.catalogUrl })),
   ];
 
   const handleDownload = async (docId: string) => {
@@ -80,15 +98,63 @@ export default function Home() {
       return;
     }
 
+    // Check if profile is complete (has company + phone)
+    try {
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const data = userDoc.data();
+      if (!data?.company || !data?.phone) {
+        setPendingDownloadId(docId);
+        setShowProfileGate(true);
+        return;
+      }
+    } catch (err) {
+      console.error('[Home] Profile check failed:', err);
+    }
+
+    await executeDownload(docId, docData);
+  };
+
+  const executeDownload = async (docId: string, docData: { url?: string; title?: string }) => {
+    if (!auth.currentUser || !docData?.url) return;
     setDownloadingId(docId);
     try {
-      // Record download log in Firestore
+      const now = new Date().toISOString();
       await addDoc(collection(db, 'userDownloads'), {
         userId: auth.currentUser.uid,
+        email: auth.currentUser.email || '',
         pdfId: docId,
         pdfTitle: docData.title,
-        timestamp: new Date().toISOString(),
+        timestamp: now,
       });
+
+      // Track PDF download event (Meta Pixel + GA4)
+      trackEvent('Download', {
+        content_name: docData.title || docId,
+        content_category: 'home_catalog',
+      });
+      gtagEvent('file_download', {
+        file_name: docData.title || docId,
+      });
+
+      // Push download event to CRM with user profile info
+      if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        const profile = userDoc.data() || {};
+        pushToCRM(
+          {
+            name: profile.displayName || auth.currentUser.displayName || '',
+            email: auth.currentUser.email || '',
+            phone: profile.phone || '',
+            company: profile.company || '',
+            country: profile.country || '',
+            message: `Downloaded: ${docData.title || docId}`,
+            source: 'pdf_download',
+            createdAt: now,
+          },
+          siteSettings.crmWebhookUrl,
+          siteSettings.crmWebhookHeaders,
+        ).catch(() => {});
+      }
 
       setDownloadingId(null);
       window.open(docData.url, '_blank');
@@ -96,6 +162,15 @@ export default function Home() {
       handleFirestoreError(error, OperationType.CREATE, 'userDownloads');
       setDownloadingId(null);
       alert(t('common.download_failed'));
+    }
+  };
+
+  const handleProfileGateComplete = () => {
+    setShowProfileGate(false);
+    if (pendingDownloadId) {
+      const docData = documents.find(d => d.id === pendingDownloadId);
+      if (docData) executeDownload(pendingDownloadId, docData);
+      setPendingDownloadId(null);
     }
   };
 
@@ -142,6 +217,12 @@ export default function Home() {
           siteSettings.fbCapiTestCode || undefined,
         );
       }
+      // Google Analytics 4 + Google Ads conversion tracking
+      gtagTrackLead({
+        content_name: 'Home Inquiry Form',
+        content_category: contactForm.partNeed || 'general',
+        company: contactForm.company,
+      });
       // Fire-and-forget CRM webhook push (never blocks UI).
       if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
         pushToCRM(
@@ -212,6 +293,12 @@ export default function Home() {
 
   return (
     <div className="flex-1 flex flex-col w-full">
+      {showProfileGate && (
+        <ProfileGateModal
+          onComplete={handleProfileGateComplete}
+          onClose={() => { setShowProfileGate(false); setPendingDownloadId(null); }}
+        />
+      )}
       <SEO
         title="Vida Auto - Wholesale Auto Parts Supplier from China"
         description="Vida Auto supplies high-quality OEM and aftermarket auto parts to global B2B buyers. 12.5k+ SKUs, 45+ countries served, fast bulk shipping."
@@ -219,22 +306,16 @@ export default function Home() {
         image={siteSettings?.logoUrl || '/favicon.png'}
         jsonLd={{
           '@context': 'https://schema.org',
-          '@type': 'Organization',
+          '@type': 'WebSite',
           name: 'Vida Auto',
           url: 'https://autoparts.fit',
-          logo: 'https://autoparts.fit/favicon.png',
-          sameAs: [
-            siteSettings?.facebook,
-            siteSettings?.twitter,
-            siteSettings?.instagram,
-            siteSettings?.linkedin,
-          ].filter(Boolean),
-          contactPoint: {
-            '@type': 'ContactPoint',
-            telephone: siteSettings?.phone || '',
-            email: siteSettings?.email || '',
-            contactType: 'sales',
-            areaServed: 'Worldwide',
+          potentialAction: {
+            '@type': 'SearchAction',
+            target: 'https://autoparts.fit/products?search={search_term_string}',
+            'query-input': 'required name=search_term_string',
+          },
+          publisher: {
+            '@id': 'https://autoparts.fit#organization',
           },
         }}
       />
@@ -381,7 +462,7 @@ export default function Home() {
             src={starProduct?.images?.[0] || "https://picsum.photos/seed/nanabuana-part/400/300"} 
             alt={starProduct?.name || "Featured Product"} 
             loading="lazy" 
-            className="flex-1 min-h-[100px] mt-2 rounded-lg object-cover w-full group-hover:scale-105 transition-transform duration-300" 
+            className="flex-1 min-h-[100px] mt-2 rounded-lg object-contain w-full bg-[#0A192F] p-2 group-hover:scale-[1.03] transition-transform duration-300" 
             referrerPolicy="no-referrer" 
           />
           <div className="text-[12px] mt-2 opacity-70 text-[#E6F1FF]">
@@ -393,15 +474,7 @@ export default function Home() {
         <div 
           className="md:col-span-1 md:row-span-1 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col justify-center items-center text-center relative overflow-hidden"
         >
-          {siteSettings?.statsVideoUrl ? (
-            <LazyVideo
-              src={siteSettings.statsVideoUrl}
-              poster={siteSettings.statsBgUrl}
-              className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
-              preload="metadata"
-              rootMargin="400px"
-            />
-          ) : siteSettings?.statsBgUrl ? (
+          {siteSettings?.statsBgUrl ? (
             <div className="absolute inset-0 w-full h-full bg-cover bg-center opacity-30" style={{ backgroundImage: `url(${siteSettings.statsBgUrl})` }}></div>
           ) : null}
           <div className="absolute inset-0 bg-gradient-to-b from-[#112240]/80 to-[#112240]/90"></div>
@@ -417,17 +490,17 @@ export default function Home() {
 
         {/* VIDEO STORY */}
         <div className="md:col-span-2 md:row-span-1 bg-black rounded-2xl border border-white/5 flex flex-col justify-center items-center relative overflow-hidden">
-          {siteSettings?.storyVideoUrl ? (
+          {siteSettings?.statsVideoUrl ? (
             <LazyVideo
-              src={siteSettings.storyVideoUrl}
-              poster={siteSettings.storyBgUrl}
+              src={siteSettings.statsVideoUrl}
+              poster={siteSettings.statsBgUrl}
               className="absolute inset-0 w-full h-full object-cover object-center"
               preload="metadata"
               rootMargin="400px"
             />
           ) : (
             <img 
-              src={siteSettings?.storyBgUrl || "https://picsum.photos/seed/nanabuana-factory/800/400"} 
+              src={siteSettings?.statsBgUrl || "https://picsum.photos/seed/nanabuana-factory/800/400"} 
               alt="Factory" 
               loading="lazy" 
               className="absolute inset-0 w-full h-full object-cover opacity-40" 
@@ -591,47 +664,22 @@ export default function Home() {
         <h2 className="text-2xl md:text-3xl font-bold text-[#E6F1FF] mb-8 text-center">{t('home.must_have')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           
-          {/* Card 1 */}
-          <Link to="/products?category=Lighting System" className="bg-[#112240] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:border-[#FFB300]/50 transition-colors group">
-            <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
-              <Lightbulb className="w-8 h-8" />
-            </div>
-            <h3 className="text-[15px] font-semibold text-[#E6F1FF] mb-2">{t('home.cat1_title')}</h3>
-            <p className="text-[12px] text-[#8892B0] mb-4 flex-1">{t('home.cat1_desc')}</p>
-            <span className="text-[13px] text-[#FFB300] font-medium flex items-center">{t('home.view_details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
-          </Link>
+          {homeCategories.map((cat, idx) => {
+            const icons = [Lightbulb, Disc, Filter, Car];
+            const Icon = icons[idx % icons.length];
+            return (
+              <Link key={cat.id} to={`/products?category=${cat.id}`} className="bg-[#112240] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:border-[#FFB300]/50 transition-colors group">
+                <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
+                  <Icon className="w-8 h-8" />
+                </div>
+                <h3 className="text-[15px] font-semibold text-[#E6F1FF] mb-2">{cat.name}</h3>
+                <p className="text-[12px] text-[#8892B0] mb-4 flex-1">{cat.description || ''}</p>
+                <span className="text-[13px] text-[#FFB300] font-medium flex items-center">{t('home.view_details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
+              </Link>
+            );
+          })}
 
-          {/* Card 2 */}
-          <Link to="/products?category=Braking System" className="bg-[#112240] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:border-[#FFB300]/50 transition-colors group">
-            <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
-              <Disc className="w-8 h-8" />
-            </div>
-            <h3 className="text-[15px] font-semibold text-[#E6F1FF] mb-2">{t('home.cat2_title')}</h3>
-            <p className="text-[12px] text-[#8892B0] mb-4 flex-1">{t('home.cat2_desc')}</p>
-            <span className="text-[13px] text-[#FFB300] font-medium flex items-center">{t('home.view_details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
-          </Link>
-
-          {/* Card 3 */}
-          <Link to="/products?category=Filters" className="bg-[#112240] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:border-[#FFB300]/50 transition-colors group">
-            <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
-              <Filter className="w-8 h-8" />
-            </div>
-            <h3 className="text-[15px] font-semibold text-[#E6F1FF] mb-2">{t('home.cat3_title')}</h3>
-            <p className="text-[12px] text-[#8892B0] mb-4 flex-1">{t('home.cat3_desc')}</p>
-            <span className="text-[13px] text-[#FFB300] font-medium flex items-center">{t('home.view_details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
-          </Link>
-
-          {/* Card 4 */}
-          <Link to="/products?category=Exterior Parts" className="bg-[#112240] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:border-[#FFB300]/50 transition-colors group">
-            <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
-              <Car className="w-8 h-8" />
-            </div>
-            <h3 className="text-[15px] font-semibold text-[#E6F1FF] mb-2">{t('home.cat4_title')}</h3>
-            <p className="text-[12px] text-[#8892B0] mb-4 flex-1">{t('home.cat4_desc')}</p>
-            <span className="text-[13px] text-[#FFB300] font-medium flex items-center">{t('home.view_details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
-          </Link>
-
-          {/* Card 5 - All Categories */}
+          {/* Card - All Categories */}
           <Link to="/products" className="bg-[#FFB300] rounded-2xl border border-white/5 p-6 flex flex-col items-center text-center hover:bg-[#FFCA28] transition-colors group">
             <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mb-4 text-[#FFB300] group-hover:scale-110 transition-transform">
               <LayoutGrid className="w-8 h-8" />
@@ -643,6 +691,41 @@ export default function Home() {
 
         </div>
       </div>
+
+      {/* BRAND LOGOS SECTION */}
+      {siteSettings?.brandLogos && siteSettings.brandLogos.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-[#E6F1FF]">{t('home.our_brands', 'Our Brands')}</h2>
+            <Link to="/products" className="text-sm text-[#FFB300] hover:text-[#FFCA28] flex items-center">
+              {t('home.view_all', 'View All')} <ArrowRight className="w-4 h-4 ml-1" />
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+            {siteSettings.brandLogos.map((brand: any, i: number) => (
+              <Link
+                key={i}
+                to={brand.categoryId ? `/products?category=${brand.categoryId}` : '/products'}
+                className="bg-[#112240] rounded-xl border border-white/5 p-5 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[140px] h-[140px]"
+              >
+                {brand.imageUrl ? (
+                  <img src={brand.imageUrl} alt={brand.label} className="w-16 h-16 object-contain mb-2" />
+                ) : (
+                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
+                )}
+                <span className="text-sm font-medium text-[#E6F1FF] text-center truncate w-full">{brand.label}</span>
+              </Link>
+            ))}
+            <Link
+              to="/products"
+              className="bg-[#FFB300]/10 rounded-xl border border-[#FFB300]/20 p-5 flex flex-col items-center justify-center hover:bg-[#FFB300]/20 transition-colors w-[140px] h-[140px]"
+            >
+              <ArrowRight className="w-8 h-8 text-[#FFB300] mb-2" />
+              <span className="text-sm font-medium text-[#FFB300]">{t('home.more_brands', 'More')}</span>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* DOCUMENT DOWNLOAD SECTION */}
       <div className="mb-12">

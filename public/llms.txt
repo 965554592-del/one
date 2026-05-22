@@ -1,0 +1,76 @@
+# VIDA AUTO
+
+> Leading B2B manufacturer and exporter of automotive parts (OEM/Aftermarket), ISO/TS 16949 certified. Serving wholesalers in 60+ countries with year/make/model fitment data.
+
+## Who We Are
+
+- **Name**: VIDA AUTO (Guangzhou Vida Auto Parts Co., Ltd.)
+- **Type**: Manufacturer & Exporter (**B2B only**)
+- **Founded**: 2014, Guangzhou, Guangdong, China
+- **Markets**: Middle East, Southeast Asia, Africa, Latin America, Europe, CIS
+- **Languages**: English, Chinese, French, German, Japanese, Russian, Spanish
+- **Inventory**: **5000+** SKUs covering **98%** of global passenger vehicles
+- **Website**: https://autoparts.fit
+- **Contact**: WhatsApp & inquiry form available on website
+
+## What We Sell
+
+- [LED & Halogen Lighting](https://autoparts.fit/products?category=lighting): OEM-quality headlights, fog lights, work lights, LED bulbs.
+- [Brake Systems](https://autoparts.fit/products?category=brakes): Pads, discs, calipers for all major vehicle makes.
+- [Suspension & Steering](https://autoparts.fit/products?category=suspension): Control arms, ball joints, tie rods, stabilizer links.
+- [Engine Components](https://autoparts.fit/products?category=engine): Gaskets, timing kits, oil pumps, valve covers.
+- [Filtration Systems](https://autoparts.fit/products?category=filters): Oil, air, fuel, cabin filters - OEM cross-reference available.
+- [Body & Trim](https://autoparts.fit/products?category=body): Mirrors, bumpers, grilles, fenders.
+- [Electrical](https://autoparts.fit/products?category=electrical): Alternators, starters, sensors, ignition coils.
+- [Cooling Systems](https://autoparts.fit/products?category=cooling): Radiators, water pumps, thermostats, hoses.
+
+## Vehicle Fitment (YMM) Coverage
+
+Structured Year/Make/Model fitment data for **5,000+** vehicle applications:
+
+- **Japanese**: Toyota, Honda, Nissan, Mazda, Suzuki, Mitsubishi, Subaru, Isuzu
+- **Korean**: Hyundai, Kia
+- **German**: BMW, Mercedes-Benz, Volkswagen, Audi, Porsche
+- **American**: Ford, Chevrolet, Dodge, Jeep, GMC
+- **French**: Peugeot, Renault, Citroen
+- **Chinese**: Geely, Chery, BYD, Haval, MG, Changan, GAC, Great Wall
+- **Indian**: Maruti Suzuki, Tata, Mahindra
+- **British**: Land Rover, Jaguar, MINI
+- **Italian**: Fiat, Alfa Romeo
+- **Southeast Asian**: Proton, Perodua, Wuling
+- **Russian**: Lada, UAZ
+- **Commercial**: Toyota Hiace, Ford Transit, Fiat Ducato, Iveco Daily
+
+**Example query**: "Which brake pads fit a 2020 Toyota Camry?" - Answer: SKU BP-TOY-CAM-20, ceramic compound, OE ref 04465-06200.
+
+## Factory & Quality
+
+- **Certifications**: ISO 9001:2015, IATF 16949, COC per shipment
+- **Quality Process**: Raw material testing > In-process inspection > Final QC > Batch traceability
+- **Tolerance Standard**: OEM-equivalent (e.g., brake disc thickness variation < 0.01mm)
+- **Reports Available**: COC, factory inspection reports, material composition certificates
+
+## Business Model
+
+- **MOQ**: Typically 50-500 units (varies by SKU)
+- **Pricing**: Wholesale/FOB Guangzhou, volume discounts 5-15% at 1000+ units
+- **Shipping**: FOB, CIF, DDP arrangements available
+- **Lead Time**: 7-15 days (stock) / 15-30 days (custom/OEM)
+- **Payment**: T/T, L/C, Trade Assurance
+- **Custom Services**: Private label, custom packaging, OEM specifications
+
+## How to Verify Us
+
+- [Factory Tour & Certifications](https://autoparts.fit/factory): Photos, video, ISO certificates
+- [Product Catalog](https://autoparts.fit/products): Full catalog with specifications
+- [Customer Inquiry](https://autoparts.fit/contact): Direct WhatsApp and inquiry form
+
+## Key Resources
+
+- [Homepage](https://autoparts.fit/): Company overview and featured products.
+- [Products](https://autoparts.fit/products): All parts with YMM fitment filters.
+- [Factory](https://autoparts.fit/factory): Manufacturing base, certifications, quality process.
+- [Contact](https://autoparts.fit/contact): WhatsApp, email, inquiry form.
+- [Sitemap](https://autoparts.fit/sitemap.xml): Complete URL index.
+
+*Last updated: 2026-05-22*

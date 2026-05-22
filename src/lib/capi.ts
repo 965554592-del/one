@@ -78,7 +78,7 @@ export async function sendCapiEvent(params: CapiEventParams): Promise<boolean> {
       customData,
     };
 
-    const res = await fetch(`${apiUrl}/api/fb-capi`, {
+    const res = await fetch(apiUrl('/api/fb-capi'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

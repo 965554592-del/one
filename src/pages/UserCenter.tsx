@@ -16,6 +16,76 @@ export default function UserCenter() {
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  // ─── Tabs (must be before conditional return to follow Rules of Hooks) ──
+  const [activeTab, setActiveTab] = useState<'inquiries' | 'favorites' | 'tracking'>('inquiries');
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState(false);
+  const [expandedInquiry, setExpandedInquiry] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<any[]>([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+
+  // Fetch inquiries for this user
+  useEffect(() => {
+    if (!user) return;
+    const fetchInquiries = async () => {
+      setInquiriesLoading(true);
+      try {
+        const q = query(
+          collection(db, 'messages'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+        );
+        const snap = await getDocs(q);
+        let results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        if (results.length === 0 && user.email) {
+          const qEmail = query(
+            collection(db, 'messages'),
+            where('email', '==', user.email),
+            orderBy('createdAt', 'desc'),
+          );
+          const snapEmail = await getDocs(qEmail);
+          results = snapEmail.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+
+        setInquiries(results);
+      } catch (err) {
+        console.error('[UserCenter] Failed to load inquiries:', err);
+      } finally {
+        setInquiriesLoading(false);
+      }
+    };
+    fetchInquiries();
+  }, [user]);
+
+  // Fetch favorites
+  useEffect(() => {
+    if (!user) return;
+    const fetchFavorites = async () => {
+      setFavoritesLoading(true);
+      try {
+        const q = query(collection(db, 'users', user.uid, 'favorites'), orderBy('addedAt', 'desc'));
+        const snap = await getDocs(q);
+        const favIds = snap.docs.map(d => ({ favDocId: d.id, ...d.data() }));
+        const products: any[] = [];
+        for (const fav of favIds) {
+          const pid = (fav as any).productId;
+          if (!pid) continue;
+          const pDoc = await getDoc(doc(db, 'products', pid));
+          if (pDoc.exists()) {
+            products.push({ favDocId: fav.favDocId, id: pDoc.id, ...pDoc.data(), addedAt: (fav as any).addedAt });
+          }
+        }
+        setFavorites(products);
+      } catch (err) {
+        console.error('[UserCenter] Failed to load favorites:', err);
+      } finally {
+        setFavoritesLoading(false);
+      }
+    };
+    fetchFavorites();
+  }, [user]);
+
   const handleGoogleLogin = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -158,83 +228,6 @@ export default function UserCenter() {
       </div>
     );
   }
-
-  // ─── Tabs ──────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'inquiries' | 'favorites' | 'tracking'>('inquiries');
-
-  // ─── Inquiry History ──────────────────────────────────────
-  const [inquiries, setInquiries] = useState<any[]>([]);
-  const [inquiriesLoading, setInquiriesLoading] = useState(false);
-  const [expandedInquiry, setExpandedInquiry] = useState<string | null>(null);
-
-  // ─── Favorites ────────────────────────────────────────────
-  const [favorites, setFavorites] = useState<any[]>([]);
-  const [favoritesLoading, setFavoritesLoading] = useState(false);
-
-  // Fetch inquiries for this user
-  useEffect(() => {
-    if (!user) return;
-    const fetchInquiries = async () => {
-      setInquiriesLoading(true);
-      try {
-        // Query by userId first, fallback to email match
-        const q = query(
-          collection(db, 'messages'),
-          where('userId', '==', user.uid),
-          orderBy('createdAt', 'desc'),
-        );
-        const snap = await getDocs(q);
-        let results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // If no results by userId, try email match (for old inquiries before userId was added)
-        if (results.length === 0 && user.email) {
-          const qEmail = query(
-            collection(db, 'messages'),
-            where('email', '==', user.email),
-            orderBy('createdAt', 'desc'),
-          );
-          const snapEmail = await getDocs(qEmail);
-          results = snapEmail.docs.map(d => ({ id: d.id, ...d.data() }));
-        }
-
-        setInquiries(results);
-      } catch (err) {
-        console.error('[UserCenter] Failed to load inquiries:', err);
-      } finally {
-        setInquiriesLoading(false);
-      }
-    };
-    fetchInquiries();
-  }, [user]);
-
-  // Fetch favorites
-  useEffect(() => {
-    if (!user) return;
-    const fetchFavorites = async () => {
-      setFavoritesLoading(true);
-      try {
-        const q = query(collection(db, 'users', user.uid, 'favorites'), orderBy('addedAt', 'desc'));
-        const snap = await getDocs(q);
-        const favIds = snap.docs.map(d => ({ favDocId: d.id, ...d.data() }));
-        // Fetch product details
-        const products: any[] = [];
-        for (const fav of favIds) {
-          const pid = (fav as any).productId;
-          if (!pid) continue;
-          const pDoc = await getDoc(doc(db, 'products', pid));
-          if (pDoc.exists()) {
-            products.push({ favDocId: fav.favDocId, id: pDoc.id, ...pDoc.data(), addedAt: (fav as any).addedAt });
-          }
-        }
-        setFavorites(products);
-      } catch (err) {
-        console.error('[UserCenter] Failed to load favorites:', err);
-      } finally {
-        setFavoritesLoading(false);
-      }
-    };
-    fetchFavorites();
-  }, [user]);
 
   const removeFavorite = async (favDocId: string) => {
     if (!user) return;

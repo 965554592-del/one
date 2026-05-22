@@ -6,6 +6,11 @@ import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { useStore } from '../store/useStore';
 import { ArrowLeft, MessageCircle, FileText, Lock, Loader2, Video } from 'lucide-react';
 import SEO from '../components/SEO';
+import ProfileGateModal from '../components/ProfileGateModal';
+import { pushToCRM } from '../lib/webhook';
+import { productWithFitmentSchema, type VehicleFitment } from '../lib/schema';
+import { trackEvent } from '../lib/pixel';
+import { gtagEvent } from '../lib/gtag';
 
 interface Product {
   id: string;
@@ -22,6 +27,9 @@ interface Product {
   imageUrls?: string[];
   videoUrl?: string;
   catalogUrl?: string;
+  oemNumber?: string;
+  /** Structured Year/Make/Model fitment data (preferred over free-text compatibility). */
+  fitments?: VehicleFitment[];
 }
 
 export default function ProductDetail() {
@@ -34,6 +42,8 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const [showProfileGate, setShowProfileGate] = useState(false);
+  const [pendingDownloadQual, setPendingDownloadQual] = useState<any>(null);
 
   useEffect(() => {
     const fetchProductAndQuals = async () => {
@@ -44,6 +54,25 @@ export default function ProductDetail() {
         if (docSnap.exists()) {
           const productData = { id: docSnap.id, ...docSnap.data() } as Product;
           setProduct(productData);
+
+          // Track product view (Meta Pixel + GA4)
+          trackEvent('ViewContent', {
+            content_ids: [productData.id],
+            content_name: productData.name,
+            content_category: productData.categoryName,
+            content_type: 'product',
+            value: productData.price || 0,
+            currency: 'USD',
+          });
+          gtagEvent('view_item', {
+            items: [{
+              item_id: productData.id,
+              item_name: productData.name,
+              item_category: productData.categoryName,
+              price: productData.price || 0,
+            }],
+            currency: 'USD',
+          });
 
           // Fetch qualifications for this category
           const qRef = collection(db, 'qualifications');
@@ -94,16 +123,67 @@ export default function ProductDetail() {
 
   const handleDownload = async (qual: any) => {
     if (!auth.currentUser) return;
-    
+
+    // Check if profile is complete
+    try {
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const data = userDoc.data();
+      if (!data?.company || !data?.phone) {
+        setPendingDownloadQual(qual);
+        setShowProfileGate(true);
+        return;
+      }
+    } catch (err) {
+      console.error('[ProductDetail] Profile check failed:', err);
+    }
+
+    await executeDownload(qual);
+  };
+
+  const executeDownload = async (qual: any) => {
+    if (!auth.currentUser) return;
     setDownloading(qual.id);
     try {
+      const now = new Date().toISOString();
       await addDoc(collection(db, 'userDownloads'), {
         userId: auth.currentUser.uid,
+        email: auth.currentUser.email || '',
         pdfId: qual.id,
-        timestamp: new Date().toISOString()
+        timestamp: now,
       });
-      
-      // Open the file
+
+      // Track PDF download event (Meta Pixel + GA4)
+      trackEvent('Download', {
+        content_name: qual.title || qual.fileName || qual.id,
+        content_category: product?.categoryName || 'pdf',
+        content_ids: product ? [product.id] : undefined,
+      });
+      gtagEvent('file_download', {
+        file_name: qual.title || qual.fileName || qual.id,
+        item_id: product?.id,
+        item_name: product?.name,
+      });
+
+      // Push download event to CRM with user profile info
+      if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
+        const userDocSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        const profile = userDocSnap.data() || {};
+        pushToCRM(
+          {
+            name: profile.displayName || auth.currentUser.displayName || '',
+            email: auth.currentUser.email || '',
+            phone: profile.phone || '',
+            company: profile.company || '',
+            country: profile.country || '',
+            message: `Downloaded: ${qual.title || qual.fileName || qual.id}${product ? ` (Product: ${product.name})` : ''}`,
+            source: 'pdf_download',
+            createdAt: now,
+          },
+          siteSettings.crmWebhookUrl,
+          siteSettings.crmWebhookHeaders,
+        ).catch(() => {});
+      }
+
       const link = document.createElement('a');
       link.href = qual.fileUrl;
       link.download = qual.fileName || 'document';
@@ -116,6 +196,14 @@ export default function ProductDetail() {
       handleFirestoreError(error, OperationType.CREATE, 'userDownloads');
       setDownloading(null);
       alert(t('common.download_failed'));
+    }
+  };
+
+  const handleProfileGateComplete = () => {
+    setShowProfileGate(false);
+    if (pendingDownloadQual) {
+      executeDownload(pendingDownloadQual);
+      setPendingDownloadQual(null);
     }
   };
 
@@ -141,28 +229,40 @@ export default function ProductDetail() {
   const productImage = product?.imageUrls?.[0];
   const productCategory = product?.categoryName || 'Auto Parts';
   const productJsonLd = product
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'Product',
+    ? productWithFitmentSchema({
         name: product.name,
         sku: product.sku,
+        productUrl: `/products/${product.id}`,
         category: productCategory,
-        image: product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : undefined,
-        brand: { '@type': 'Brand', name: 'Vida Auto' },
-        description: `${product.name} (SKU: ${product.sku}) - ${productCategory}. Wholesale auto parts from Vida Auto.`,
-        offers: {
-          '@type': 'Offer',
-          priceCurrency: 'USD',
-          price: product.price > 0 ? product.price : undefined,
-          availability: 'https://schema.org/InStock',
-          seller: { '@type': 'Organization', name: 'Vida Auto' },
-          url: `https://autoparts.fit/products/${product.id}`,
-        },
-      }
+        images: product.imageUrls,
+        price: product.price,
+        minOrder: 50,
+        availability: 'InStock',
+        oemNumber: product.oemNumber,
+        fitments: product.fitments,
+        compatibilityText: product.techSpecs?.compatibility,
+      })
+    : undefined;
+
+  const breadcrumbs = product
+    ? [
+        { name: 'Home', url: '/' },
+        { name: 'Products', url: '/products' },
+        ...(product.categoryName
+          ? [{ name: product.categoryName, url: `/products?category=${product.categoryId}` }]
+          : []),
+        { name: product.name, url: `/products/${product.id}` },
+      ]
     : undefined;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      {showProfileGate && (
+        <ProfileGateModal
+          onComplete={handleProfileGateComplete}
+          onClose={() => { setShowProfileGate(false); setPendingDownloadQual(null); }}
+        />
+      )}
       {product && (
         <SEO
           title={`${product.name} (${product.sku}) | Vida Auto`}
@@ -171,6 +271,7 @@ export default function ProductDetail() {
           image={productImage}
           type="product"
           jsonLd={productJsonLd}
+          breadcrumbs={breadcrumbs}
         />
       )}
       <Link to="/products" className="inline-flex items-center text-sm text-[#8892B0] hover:text-[#FFB300] mb-8 transition-colors">
@@ -188,6 +289,7 @@ export default function ProductDetail() {
                   controls 
                   className="w-full h-96 object-contain"
                   poster={product.imageUrls?.[0]}
+                  onError={() => { console.warn('[ProductDetail] Video decode error, switching to image'); setActiveImage(0); }}
                 />
               ) : product.imageUrls && product.imageUrls.length > 0 ? (
                 <img 
@@ -238,11 +340,9 @@ export default function ProductDetail() {
           <div className="p-8 md:p-12 flex flex-col">
             <div className="text-sm text-[#FFB300] font-semibold mb-2 uppercase tracking-wider">{product.categoryName}</div>
             <h1 className="text-3xl font-bold text-white mb-2">{product.name}</h1>
-            <p className="text-[#8892B0] mb-6">SKU: <span className="font-mono text-white">{product.sku}</span></p>
-            
-            <div className="text-3xl font-bold text-[#FFB300] mb-8">
-              ${product.price.toFixed(2)}
-            </div>
+            <p className="text-[#8892B0] mb-1">SKU: <span className="font-mono text-white">{product.sku}</span></p>
+            {product.oemNumber && <p className="text-[#8892B0] mb-1">OEM: <span className="font-mono text-white">{product.oemNumber}</span></p>}
+            <div className="mb-5"></div>
 
             {/* Tech Specs */}
             {product.techSpecs && (

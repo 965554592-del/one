@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useStore } from '../store/useStore';
 import { Navigate } from 'react-router-dom';
-import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy, where, writeBatch } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Activity, RefreshCw, Edit, ShieldCheck, FileDown, Layers, Video, Image as ImageIcon, Share2, Mail, CheckCircle, Phone, Send, ClipboardList, Calendar } from 'lucide-react';
 import { apiUrl } from '../lib/api';
@@ -12,12 +12,63 @@ import { uploadFileToStorage, deleteFileFromStorage } from '../lib/storage';
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // Firebase Storage allows much more; keep a sane UX cap.
 
 /**
+ * Inspects the first 256KB of an MP4/MOV file and detects whether the video
+ * track is encoded with H.265 / HEVC (atoms `hvc1`, `hev1`, or `hvcC`).
+ * HEVC is rejected because Chrome / Firefox / Edge / WeChat browsers cannot
+ * decode it inside an HTML <video> element, leading to silently broken
+ * playback on the public site.
+ */
+async function isHevcVideo(file: File): Promise<boolean> {
+  try {
+    const head = await file.slice(0, Math.min(file.size, 256 * 1024)).arrayBuffer();
+    const bytes = new Uint8Array(head);
+    // ASCII scan for the HEVC atom signatures.
+    const needles = [
+      [0x68, 0x76, 0x63, 0x31], // hvc1
+      [0x68, 0x65, 0x76, 0x31], // hev1
+      [0x68, 0x76, 0x63, 0x43], // hvcC
+    ];
+    for (let i = 0; i < bytes.length - 4; i++) {
+      for (const n of needles) {
+        if (bytes[i] === n[0] && bytes[i + 1] === n[1] && bytes[i + 2] === n[2] && bytes[i + 3] === n[3]) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch (e) {
+    console.warn('[upload] HEVC probe failed, allowing upload:', e);
+    return false;
+  }
+}
+
+/**
  * Uploads a file to Firebase Storage (primary backend) and returns the
  * resulting download URL. Falls back to the Render-hosted /api/upload
  * endpoint only when Storage rejects the upload, which keeps the workflow
  * resilient even before Storage rules are configured.
  */
 async function uploadFile(file: File, folder = 'uploads'): Promise<string> {
+  // Auto-transcode H.265 / HEVC videos to H.264 on the server so browsers
+  // can play them. The transcoded file is returned and then uploaded to
+  // Firebase Storage via the normal client SDK path.
+  if (file.type.startsWith('video/') || /\.(mp4|mov|m4v)$/i.test(file.name)) {
+    if (await isHevcVideo(file)) {
+      console.log('[upload] H.265 detected, sending to server for transcoding…');
+      const formData = new FormData();
+      formData.append('file', file);
+      const resp = await fetch(apiUrl('/api/transcode'), { method: 'POST', body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Transcode failed' }));
+        throw new Error(
+          err.error || '服务端转码失败 / Server-side transcode failed'
+        );
+      }
+      const blob = await resp.blob();
+      file = new File([blob], file.name.replace(/\.\w+$/, '.mp4'), { type: 'video/mp4' });
+      console.log(`[upload] Transcode complete: ${(blob.size / 1024 / 1024).toFixed(1)}MB H.264`);
+    }
+  }
   try {
     return await uploadFileToStorage(file, folder);
   } catch (storageErr) {
@@ -84,6 +135,8 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'regions', label: t('admin.regions'), icon: MapPin },
     { id: 'qualifications', label: t('admin.qualifications'), icon: ShieldCheck },
     { id: 'certificates', label: t('admin.certificates_tab'), icon: ShieldCheck },
+    { id: 'brand-logos', label: t('admin.brand_logos', 'Brand Logos'), icon: Layers },
+    { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
     { id: 'translations', label: t('admin.translations'), icon: Edit },
@@ -152,6 +205,8 @@ export default function AdminDashboard() {
           {activeTab === 'hero-stylist' && <HeroHeadlineStylist />}
           {activeTab === 'contacts' && <ContactsManager />}
           {activeTab === 'certificates' && <CertificatesManager />}
+          {activeTab === 'brand-logos' && <BrandLogosManager />}
+          {activeTab === 'blog' && <BlogManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
         </div>
@@ -291,6 +346,345 @@ function CertificatesManager() {
       {certificates.length === 0 && (
         <div className="text-center py-12 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl">
           {t('admin.no_certificates', 'No display certificates found')}
+        </div>
+      )}
+
+      {isSaving && (
+        <div className="fixed bottom-8 right-8 bg-[#FFB300] text-[#0A192F] px-4 py-2 rounded-full shadow-2xl flex items-center animate-bounce">
+          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          {t('admin.saving')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BlogManager() {
+  const { t } = useTranslation();
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newPost, setNewPost] = useState({
+    title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: ''
+  });
+
+  const fetchPosts = async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'blogPosts'), orderBy('publishedAt', 'desc')));
+      setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'blogPosts');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchPosts(); }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPost.title) return;
+    try {
+      const slug = newPost.slug || newPost.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const data = {
+        title: newPost.title,
+        slug,
+        excerpt: newPost.excerpt,
+        content: newPost.content,
+        coverImage: newPost.coverImage,
+        category: newPost.category,
+        readTime: newPost.readTime,
+        author: newPost.author,
+        tags: newPost.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+        updatedAt: new Date().toISOString(),
+      };
+      if (editingId) {
+        await setDoc(doc(db, 'blogPosts', editingId), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'blogPosts'), { ...data, publishedAt: new Date().toISOString() });
+      }
+      setIsAdding(false);
+      setEditingId(null);
+      setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: '' });
+      fetchPosts();
+    } catch (error) {
+      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'blogPosts');
+    }
+  };
+
+  const handleEdit = (post: any) => {
+    setEditingId(post.id);
+    setNewPost({
+      title: post.title || '',
+      slug: post.slug || '',
+      excerpt: post.excerpt || '',
+      content: post.content || '',
+      coverImage: post.coverImage || '',
+      category: post.category || '',
+      readTime: post.readTime || '',
+      author: post.author || 'Vida Auto',
+      tags: (post.tags || []).join(', '),
+    });
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Delete this blog post?')) {
+      try {
+        await deleteDoc(doc(db, 'blogPosts', id));
+        fetchPosts();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'blogPosts');
+      }
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.blog', 'Blog Management')}</h2>
+        <button onClick={() => { setIsAdding(true); setEditingId(null); setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: '' }); }} className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors">
+          <Plus className="w-4 h-4 mr-1" />{t('admin.add_post', 'Add Post')}
+        </button>
+      </div>
+
+      {isAdding && (
+        <form onSubmit={handleSave} className="bg-[#0A192F] rounded-lg p-4 mb-6 border border-white/10 space-y-3">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-md font-semibold text-[#E6F1FF]">{editingId ? t('admin.edit_post', 'Edit Post') : t('admin.add_post', 'New Post')}</h3>
+            <button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="text-[#8892B0] hover:text-white"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.title', 'Title')} *</label>
+              <input type="text" value={newPost.title} onChange={e => setNewPost({...newPost, title: e.target.value})} required className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Slug (auto-generated if empty)</label>
+              <input type="text" value={newPost.slug} onChange={e => setNewPost({...newPost, slug: e.target.value})} placeholder="how-to-choose-brake-pads" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Category</label>
+              <input type="text" value={newPost.category} onChange={e => setNewPost({...newPost, category: e.target.value})} placeholder="How-to / Industry / News" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Read Time</label>
+              <input type="text" value={newPost.readTime} onChange={e => setNewPost({...newPost, readTime: e.target.value})} placeholder="5 min" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Cover Image URL</label>
+              <input type="text" value={newPost.coverImage} onChange={e => setNewPost({...newPost, coverImage: e.target.value})} placeholder="https://..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Excerpt (short summary)</label>
+              <textarea value={newPost.excerpt} onChange={e => setNewPost({...newPost, excerpt: e.target.value})} rows={2} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Content (HTML)</label>
+              <textarea value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} rows={10} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Tags (comma-separated)</label>
+              <input type="text" value={newPost.tags} onChange={e => setNewPost({...newPost, tags: e.target.value})} placeholder="headlight, how-to, guide" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Author</label>
+              <input type="text" value={newPost.author} onChange={e => setNewPost({...newPost, author: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+            </div>
+          </div>
+          <button type="submit" className="mt-3 px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] transition-colors">
+            {editingId ? t('admin.save_changes', 'Save Changes') : t('admin.publish', 'Publish')}
+          </button>
+        </form>
+      )}
+
+      {loading ? (
+        <p className="text-[#8892B0]">{t('common.loading', 'Loading...')}</p>
+      ) : posts.length === 0 ? (
+        <p className="text-[#8892B0] text-center py-8">No blog posts yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {posts.map(post => (
+            <div key={post.id} className="bg-[#0A192F] rounded-lg border border-white/10 p-4 flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-[#E6F1FF] truncate">{post.title}</h3>
+                <div className="text-xs text-[#8892B0] mt-1 flex gap-3">
+                  {post.category && <span className="text-[#FFB300]">{post.category}</span>}
+                  <span>{post.publishedAt?.split('T')[0]}</span>
+                  <span>/blog/{post.slug || post.id}</span>
+                </div>
+              </div>
+              <div className="flex gap-2 ml-4">
+                <button onClick={() => handleEdit(post)} className="p-1.5 text-[#8892B0] hover:text-[#FFB300] transition-colors"><Edit className="w-4 h-4" /></button>
+                <button onClick={() => handleDelete(post.id)} className="p-1.5 text-[#8892B0] hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BrandLogosManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [logos, setLogos] = useState<any[]>(siteSettings?.brandLogos || []);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newLogo, setNewLogo] = useState({ imageUrl: '', categoryId: '', label: '' });
+
+  useEffect(() => {
+    if (siteSettings?.brandLogos) setLogos(siteSettings.brandLogos);
+  }, [siteSettings]);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const snap = await getDocs(query(collection(db, 'categories'), orderBy('order', 'asc')));
+      setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    };
+    fetchCategories();
+  }, []);
+
+  const handleSave = async (updated: any[]) => {
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'global'), { brandLogos: updated }, { merge: true });
+      setSiteSettings({ ...siteSettings, brandLogos: updated });
+    } catch (error) {
+      console.error('Error saving brand logos:', error);
+      alert(t('admin.save_failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAdd = () => {
+    if (!newLogo.imageUrl || !newLogo.label) {
+      alert(t('admin.fill_all_fields'));
+      return;
+    }
+    if (logos.length >= 5) {
+      alert(t('admin.brand_logos_max', 'Maximum 5 brand logos allowed'));
+      return;
+    }
+    const updated = [...logos, { ...newLogo }];
+    setLogos(updated);
+    handleSave(updated);
+    setNewLogo({ imageUrl: '', categoryId: '', label: '' });
+    setIsAdding(false);
+  };
+
+  const handleDelete = (index: number) => {
+    if (window.confirm(t('admin.confirm_delete'))) {
+      const updated = logos.filter((_, i) => i !== index);
+      setLogos(updated);
+      handleSave(updated);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const url = await uploadFile(file, 'brand-logos');
+      setNewLogo({ ...newLogo, imageUrl: url });
+    } catch (error: any) {
+      alert(`${t('admin.upload_failed')}: ${error.message}`);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.brand_logos', 'Brand Logos')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">{t('admin.brand_logos_desc', 'Up to 5 brand logos displayed on the homepage. Click to navigate to products.')}</p>
+        </div>
+        {logos.length < 5 && (
+          <button
+            onClick={() => setIsAdding(true)}
+            className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4 mr-2" /> {t('admin.add_brand', 'Add Brand')}
+          </button>
+        )}
+      </div>
+
+      {isAdding && (
+        <div className="bg-[#0A192F] p-4 rounded-lg border border-white/5 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.brand_label', 'Brand Name')} *</label>
+              <input
+                type="text"
+                value={newLogo.label}
+                onChange={e => setNewLogo({ ...newLogo, label: e.target.value })}
+                placeholder="e.g. Audi"
+                className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.brand_category', 'Link to Category')}</label>
+              <select
+                value={newLogo.categoryId}
+                onChange={e => setNewLogo({ ...newLogo, categoryId: e.target.value })}
+                className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+              >
+                <option value="">{t('admin.no_link', 'No link (show all)')}</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.brand_image', 'Logo Image')} *</label>
+            {newLogo.imageUrl ? (
+              <div className="flex items-center gap-3">
+                <img src={newLogo.imageUrl} alt="Preview" className="w-16 h-16 object-contain bg-white rounded p-1" />
+                <button type="button" onClick={() => setNewLogo({ ...newLogo, imageUrl: '' })} className="text-red-400 text-sm hover:underline">{t('admin.remove', 'Remove')}</button>
+              </div>
+            ) : (
+              <label className="cursor-pointer inline-flex items-center px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors text-sm">
+                <Plus className="w-4 h-4 mr-1" /> {t('admin.upload_image')}
+                <input type="file" className="sr-only" accept="image/*" onChange={handleImageUpload} />
+              </label>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleAdd} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]">{t('admin.save', 'Save')}</button>
+            <button onClick={() => { setIsAdding(false); setNewLogo({ imageUrl: '', categoryId: '', label: '' }); }} className="px-4 py-2 bg-white/5 text-[#8892B0] rounded-md text-sm hover:bg-white/10">{t('admin.cancel', 'Cancel')}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {logos.map((logo, index) => (
+          <div key={index} className="relative group bg-[#0A192F] p-4 rounded-lg border border-white/5 flex flex-col items-center text-center">
+            {logo.imageUrl ? (
+              <img src={logo.imageUrl} alt={logo.label} className="w-16 h-16 object-contain mb-2" />
+            ) : (
+              <div className="w-16 h-16 bg-white/5 rounded flex items-center justify-center mb-2 text-[#8892B0]">?</div>
+            )}
+            <p className="text-sm font-medium text-[#E6F1FF] truncate w-full">{logo.label}</p>
+            {logo.categoryId && (
+              <p className="text-xs text-[#8892B0] mt-0.5">{categories.find(c => c.id === logo.categoryId)?.name || ''}</p>
+            )}
+            <button
+              onClick={() => handleDelete(index)}
+              className="absolute top-2 right-2 bg-red-500/80 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {logos.length === 0 && (
+        <div className="text-center py-12 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl">
+          {t('admin.no_brand_logos', 'No brand logos added yet')}
         </div>
       )}
 
@@ -772,7 +1166,7 @@ function CategoriesManager() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [newCategory, setNewCategory] = useState({ name: '', description: '', order: '0' });
+  const [newCategory, setNewCategory] = useState({ name: '', description: '', order: '0', catalogUrl: '' });
 
   const fetchCategories = async () => {
     setLoading(true);
@@ -801,11 +1195,21 @@ function CategoriesManager() {
         name: newCategory.name,
         description: newCategory.description,
         order: parseInt(newCategory.order),
+        catalogUrl: newCategory.catalogUrl,
         updatedAt: new Date().toISOString()
       };
 
       if (editingId) {
         await setDoc(doc(db, 'categories', editingId), data, { merge: true });
+        // Sync categoryName on all products that belong to this category
+        const productsSnap = await getDocs(query(collection(db, 'products'), where('categoryId', '==', editingId)));
+        if (!productsSnap.empty) {
+          const batch = writeBatch(db);
+          productsSnap.docs.forEach(d => {
+            batch.update(d.ref, { categoryName: newCategory.name });
+          });
+          await batch.commit();
+        }
       } else {
         await addDoc(collection(db, 'categories'), {
           ...data,
@@ -815,7 +1219,7 @@ function CategoriesManager() {
 
       setIsAdding(false);
       setEditingId(null);
-      setNewCategory({ name: '', description: '', order: '0' });
+      setNewCategory({ name: '', description: '', order: '0', catalogUrl: '' });
       fetchCategories();
     } catch (error) {
       handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'categories');
@@ -827,7 +1231,8 @@ function CategoriesManager() {
     setNewCategory({
       name: category.name || '',
       description: category.description || '',
-      order: (category.order || 0).toString()
+      order: (category.order || 0).toString(),
+      catalogUrl: category.catalogUrl || ''
     });
     setIsAdding(true);
   };
@@ -848,7 +1253,7 @@ function CategoriesManager() {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.categories_management', 'Categories Management')}</h2>
         <button 
-          onClick={() => { setIsAdding(true); setEditingId(null); setNewCategory({ name: '', description: '', order: '0' }); }}
+          onClick={() => { setIsAdding(true); setEditingId(null); setNewCategory({ name: '', description: '', order: '0', catalogUrl: '' }); }}
           className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors"
         >
           <Plus className="w-4 h-4 mr-2" /> {t('admin.add_category', 'Add Category')}
@@ -877,6 +1282,36 @@ function CategoriesManager() {
                 <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.display_order', 'Display Order')}</label>
                 <input type="number" value={newCategory.order} onChange={e => setNewCategory({...newCategory, order: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
               </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.category_catalog', 'Category Catalog (PDF)')}</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <FileDown className="h-4 w-4 text-[#8892B0]" />
+                    </div>
+                    <input type="text" value={newCategory.catalogUrl} onChange={e => setNewCategory({...newCategory, catalogUrl: e.target.value})} placeholder="https://example.com/category-catalog.pdf" className="w-full pl-10 pr-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm" />
+                  </div>
+                  <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0">
+                    <Plus className="w-4 h-4 mr-1" />
+                    <span className="text-xs">{t('admin.select_file')}</span>
+                    <input type="file" className="sr-only" accept="application/pdf" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const url = await uploadFile(file, 'category-catalogs');
+                        setNewCategory({...newCategory, catalogUrl: url});
+                      } catch (error: any) {
+                        alert(`Upload failed: ${error?.message || ''}`);
+                      }
+                    }} />
+                  </label>
+                  {newCategory.catalogUrl && (
+                    <button type="button" onClick={async () => { await deleteFileFromServer(newCategory.catalogUrl); setNewCategory({...newCategory, catalogUrl: ''}); }} className="px-3 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="flex justify-end">
               <button type="submit" className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium">{t('admin.save_category', 'Save Category')}</button>
@@ -893,6 +1328,7 @@ function CategoriesManager() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.category_name', 'Category Name')}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.description', 'Description')}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.order', 'Order')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">PDF</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.actions')}</th>
               </tr>
             </thead>
@@ -902,6 +1338,7 @@ function CategoriesManager() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#E6F1FF]">{category.name}</td>
                   <td className="px-6 py-4 text-sm text-[#8892B0] max-w-xs truncate">{category.description || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{category.order || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{category.catalogUrl ? <a href={category.catalogUrl} target="_blank" rel="noreferrer" className="text-[#FFB300] hover:underline text-xs">View</a> : <span className="text-[#8892B0] text-xs">—</span>}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
                     <button onClick={() => handleEdit(category)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => handleDelete(category.id, category.name)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
@@ -910,7 +1347,7 @@ function CategoriesManager() {
               ))}
               {categories.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_categories_found', 'No categories found')}</td>
+                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_categories_found', 'No categories found')}</td>
                 </tr>
               )}
             </tbody>
@@ -929,20 +1366,53 @@ function ProductsManager() {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState({
-    sku: '', name: '', categoryId: '', price: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: ''
+    sku: '', name: '', categoryId: '', price: '', oemNumber: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: ''
   });
+  // YMM fitment multi-select state
+  const [allVehicles, setAllVehicles] = useState<any[]>([]);
+  const [selectedFitments, setSelectedFitments] = useState<any[]>([]);
+  const [vehicleSearch, setVehicleSearch] = useState('');
+  // Drag-and-drop reordering of product images
+  const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  /** Move imageUrls[from] -> imageUrls[to], shifting intermediate items. */
+  const moveImage = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0) return;
+    setNewProduct(prev => {
+      const arr = [...prev.imageUrls];
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      // Always keep exactly 4 slots so the form grid stays stable
+      while (arr.length < 4) arr.push('');
+      return { ...prev, imageUrls: arr.slice(0, 4) };
+    });
+  };
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [productsSnap, categoriesSnap] = await Promise.all([
+      const [productsRes, categoriesRes, vehiclesRes] = await Promise.allSettled([
         getDocs(collection(db, 'products')),
-        getDocs(collection(db, 'categories'))
+        getDocs(collection(db, 'categories')),
+        getDocs(collection(db, 'vehicles'))
       ]);
-      setProducts(productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setCategories(categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'products_data');
+      if (productsRes.status === 'fulfilled') {
+        setProducts(productsRes.value.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } else {
+        handleFirestoreError(productsRes.reason, OperationType.LIST, 'products');
+      }
+      if (categoriesRes.status === 'fulfilled') {
+        setCategories(categoriesRes.value.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } else {
+        handleFirestoreError(categoriesRes.reason, OperationType.LIST, 'categories');
+      }
+      if (vehiclesRes.status === 'fulfilled') {
+        setAllVehicles(vehiclesRes.value.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } else {
+        console.warn('Failed to load vehicles:', vehiclesRes.reason);
+        setAllVehicles([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -962,6 +1432,7 @@ function ProductsManager() {
         categoryId: newProduct.categoryId,
         categoryName: selectedCategory?.name || '',
         price: parseFloat(newProduct.price) || 0,
+        oemNumber: newProduct.oemNumber,
         techSpecs: {
           material: newProduct.material,
           weight: newProduct.weight,
@@ -970,6 +1441,7 @@ function ProductsManager() {
         imageUrls: newProduct.imageUrls.filter(url => url !== ''),
         videoUrl: newProduct.videoUrl,
         catalogUrl: newProduct.catalogUrl,
+        fitments: selectedFitments.map(v => ({ year: v.year, make: v.make, model: v.model, displayName: v.displayName })),
         updatedAt: new Date().toISOString()
       };
 
@@ -984,7 +1456,9 @@ function ProductsManager() {
 
       setIsAdding(false);
       setEditingId(null);
-      setNewProduct({ sku: '', name: '', categoryId: '', price: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: '' });
+      setSelectedFitments([]);
+      setVehicleSearch('');
+      setNewProduct({ sku: '', name: '', categoryId: '', price: '', oemNumber: '', imageUrls: ['', '', '', ''], videoUrl: '', material: '', weight: '', compatibility: '', catalogUrl: '' });
       fetchData();
     } catch (error: any) {
       console.error("Error saving product:", error);
@@ -1003,6 +1477,7 @@ function ProductsManager() {
       name: product.name || '',
       categoryId: product.categoryId || '',
       price: product.price?.toString() || '',
+      oemNumber: product.oemNumber || '',
       imageUrls: imageUrls.slice(0, 4),
       videoUrl: product.videoUrl || '',
       catalogUrl: product.catalogUrl || '',
@@ -1010,6 +1485,8 @@ function ProductsManager() {
       weight: product.techSpecs?.weight || '',
       compatibility: product.techSpecs?.compatibility || ''
     });
+    setSelectedFitments(product.fitments || []);
+    setVehicleSearch('');
     setIsAdding(true);
   };
 
@@ -1209,6 +1686,10 @@ function ProductsManager() {
                 <input required type="number" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
               </div>
               <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.oem_number', 'OEM Number')}</label>
+                <input type="text" value={newProduct.oemNumber} onChange={e => setNewProduct({...newProduct, oemNumber: e.target.value})} placeholder="e.g. 04465-33471" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.material')}</label>
                 <input type="text" value={newProduct.material} onChange={e => setNewProduct({...newProduct, material: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
               </div>
@@ -1218,7 +1699,52 @@ function ProductsManager() {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.compatibility')}</label>
-                <input type="text" value={newProduct.compatibility} onChange={e => setNewProduct({...newProduct, compatibility: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                <input type="text" value={newProduct.compatibility} onChange={e => setNewProduct({...newProduct, compatibility: e.target.value})} placeholder="Legacy free-text, e.g. Toyota Camry 2018-2023" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              </div>
+              {/* YMM Vehicle Fitment Multi-select */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.vehicle_fitment', 'Vehicle Fitment (YMM)')}</label>
+                {selectedFitments.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {selectedFitments.map((f: any, idx: number) => (
+                      <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[#FFB300]/10 text-[#FFB300] border border-[#FFB300]/30">
+                        {f.displayName || `${f.year} ${f.make} ${f.model}`}
+                        <button type="button" onClick={() => setSelectedFitments(prev => prev.filter((_, i) => i !== idx))} className="hover:text-red-400">&times;</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  placeholder={t('admin.search_vehicle', 'Type to search vehicles...')}
+                  value={vehicleSearch}
+                  onChange={(e) => setVehicleSearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm"
+                />
+                {vehicleSearch.length >= 2 && (
+                  <div className="mt-1 max-h-40 overflow-y-auto border border-white/10 rounded-md bg-[#0A192F]">
+                    {allVehicles
+                      .filter(v => {
+                        const dn = (v.displayName || '').toLowerCase();
+                        return dn.includes(vehicleSearch.toLowerCase()) && !selectedFitments.some((s: any) => s.displayName === v.displayName);
+                      })
+                      .slice(0, 30)
+                      .map((v: any) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => { setSelectedFitments(prev => [...prev, v]); setVehicleSearch(''); }}
+                          className="w-full text-left px-3 py-1.5 text-sm text-white hover:bg-[#FFB300]/10 transition-colors"
+                        >
+                          {v.displayName}
+                        </button>
+                      ))
+                    }
+                    {allVehicles.filter(v => (v.displayName || '').toLowerCase().includes(vehicleSearch.toLowerCase())).length === 0 && (
+                      <p className="px-3 py-2 text-xs text-[#8892B0]">{t('admin.no_vehicles_found', 'No vehicles found')}</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.video_upload', 'Video Upload')} ({t('admin.video_hint', 'MP4')}, {t('admin.video_size_hint', 'Max 15MB')})</label>
@@ -1328,41 +1854,93 @@ function ProductsManager() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.product_images')} (最多4张, {t('admin.image_size_hint')})</label>
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  {[0, 1, 2, 3].map((index) => (
-                    <div key={index} className="relative group aspect-square border-2 border-white/10 border-dashed rounded-lg hover:border-[#FFB300]/50 transition-all overflow-hidden flex items-center justify-center bg-[#112240]/50">
-                      {newProduct.imageUrls[index] ? (
-                        <>
-                          <img src={newProduct.imageUrls[index]} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" />
-                          <button 
-                            type="button"
-                            onClick={async () => {
-                              const urlToDelete = newProduct.imageUrls[index];
-                              await deleteFileFromServer(urlToDelete);
-                              const newUrls = [...newProduct.imageUrls];
-                              newUrls[index] = '';
-                              setNewProduct({ ...newProduct, imageUrls: newUrls });
-                            }}
-                            className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </>
-                      ) : (
-                        <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center space-y-2">
-                          <Plus className="w-8 h-8 text-[#8892B0] group-hover:text-[#FFB300] transition-colors" />
-                          <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
-                          <input 
-                            type="file" 
-                            className="sr-only" 
-                            accept="image/*"
-                            onChange={(e) => handleFileChange(e, index)}
-                          />
-                        </label>
-                      )}
-                    </div>
-                  ))}
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">
+                  {t('admin.product_images')} (最多4张, {t('admin.image_size_hint')})
+                  <span className="ml-2 text-[#8892B0]/70 font-normal">— {t('admin.drag_to_reorder', '拖动可调整顺序，第 1 张为主图')}</span>
+                </label>
+                <div className="grid grid-cols-4 gap-3 mt-2 max-w-2xl">
+                  {[0, 1, 2, 3].map((index) => {
+                    const hasImage = !!newProduct.imageUrls[index];
+                    const isDragging = dragImageIndex === index;
+                    const isDragOver = dragOverIndex === index && dragImageIndex !== null && dragImageIndex !== index;
+                    return (
+                      <div
+                        key={index}
+                        draggable={hasImage}
+                        onDragStart={(e) => {
+                          if (!hasImage) return;
+                          setDragImageIndex(index);
+                          e.dataTransfer.effectAllowed = 'move';
+                          // Setting any data is required for Firefox to fire drag events.
+                          e.dataTransfer.setData('text/plain', String(index));
+                        }}
+                        onDragOver={(e) => {
+                          if (dragImageIndex === null) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverIndex !== index) setDragOverIndex(index);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverIndex === index) setDragOverIndex(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragImageIndex === null) return;
+                          moveImage(dragImageIndex, index);
+                          setDragImageIndex(null);
+                          setDragOverIndex(null);
+                        }}
+                        onDragEnd={() => {
+                          setDragImageIndex(null);
+                          setDragOverIndex(null);
+                        }}
+                        className={`relative group aspect-square border-2 ${
+                          isDragOver ? 'border-[#FFB300] bg-[#FFB300]/10' : 'border-white/10'
+                        } border-dashed rounded-lg hover:border-[#FFB300]/50 transition-all overflow-hidden flex items-center justify-center bg-[#112240]/50 ${
+                          isDragging ? 'opacity-40 scale-95' : ''
+                        } ${hasImage ? 'cursor-move' : ''}`}
+                      >
+                        {hasImage ? (
+                          <>
+                            <img src={newProduct.imageUrls[index]} alt={`Preview ${index + 1}`} className="w-full h-full object-contain p-2 pointer-events-none" />
+                            {/* Sequence badge — index 0 is the main/cover image */}
+                            <span className={`absolute top-2 left-2 ${
+                              index === 0 ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-black/70 text-white'
+                            } text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center pointer-events-none`}>
+                              {index + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const urlToDelete = newProduct.imageUrls[index];
+                                await deleteFileFromServer(urlToDelete);
+                                const newUrls = [...newProduct.imageUrls];
+                                newUrls[index] = '';
+                                setNewProduct({ ...newProduct, imageUrls: newUrls });
+                              }}
+                              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                            <span className="absolute bottom-2 right-2 text-[10px] text-white/60 bg-black/40 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              {t('admin.drag_hint', '拖拽排序')}
+                            </span>
+                          </>
+                        ) : (
+                          <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center space-y-2">
+                            <Plus className="w-8 h-8 text-[#8892B0] group-hover:text-[#FFB300] transition-colors" />
+                            <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
+                            <input
+                              type="file"
+                              className="sr-only"
+                              accept="image/*"
+                              onChange={(e) => handleFileChange(e, index)}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1375,24 +1953,24 @@ function ProductsManager() {
       
       {loading ? <p className="text-[#8892B0]">{t('admin.loading')}</p> : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-white/10">
+          <table className="w-full table-auto divide-y divide-white/10">
             <thead className="bg-[#0A192F]">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.sku')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.name')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.category')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.price')}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.actions')}</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[22%]">{t('admin.sku')}</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.name')}</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[18%]">{t('admin.category')}</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[10%]">{t('admin.price')}</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[80px]">{t('admin.actions')}</th>
               </tr>
             </thead>
             <tbody className="bg-[#112240] divide-y divide-white/5">
               {products.map(product => (
                 <tr key={product.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[#E6F1FF]">{product.sku}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{product.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">{product.categoryName || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#8892B0]">${product.price}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                  <td className="px-3 py-3 text-sm font-medium text-[#E6F1FF] break-all">{product.sku}</td>
+                  <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.name}</td>
+                  <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.categoryName || '-'}</td>
+                  <td className="px-3 py-3 whitespace-nowrap text-sm text-[#8892B0]">${product.price}</td>
+                  <td className="px-3 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <button onClick={() => handleEditClick(product)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => handleDeleteProduct(product.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                   </td>
@@ -1400,7 +1978,7 @@ function ProductsManager() {
               ))}
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_products_found')}</td>
+                  <td colSpan={5} className="px-3 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_products_found')}</td>
                 </tr>
               )}
             </tbody>
@@ -2335,6 +2913,9 @@ function SettingsManager() {
       setMetaPixelId(siteSettings.metaPixelId || '');
       setFbCapiAccessToken(siteSettings.fbCapiAccessToken || '');
       setFbCapiTestCode(siteSettings.fbCapiTestCode || '');
+      setGa4MeasurementId(siteSettings.ga4MeasurementId || '');
+      setGadsConversionId(siteSettings.gadsConversionId || '');
+      setGadsConversionLabel(siteSettings.gadsConversionLabel || '');
       setWorkingHours(siteSettings.workingHours || 'MON-FRI 09:00-18:00');
       setWorkingHoursTz(siteSettings.workingHoursTz || 'Asia/Shanghai');
       setCrmWebhookUrl(siteSettings.crmWebhookUrl || '');
@@ -2373,6 +2954,9 @@ function SettingsManager() {
   const [metaPixelId, setMetaPixelId] = useState(siteSettings?.metaPixelId || '');
   const [fbCapiAccessToken, setFbCapiAccessToken] = useState(siteSettings?.fbCapiAccessToken || '');
   const [fbCapiTestCode, setFbCapiTestCode] = useState(siteSettings?.fbCapiTestCode || '');
+  const [ga4MeasurementId, setGa4MeasurementId] = useState(siteSettings?.ga4MeasurementId || '');
+  const [gadsConversionId, setGadsConversionId] = useState(siteSettings?.gadsConversionId || '');
+  const [gadsConversionLabel, setGadsConversionLabel] = useState(siteSettings?.gadsConversionLabel || '');
   const [workingHours, setWorkingHours] = useState(siteSettings?.workingHours || 'MON-FRI 09:00-18:00');
   const [workingHoursTz, setWorkingHoursTz] = useState(siteSettings?.workingHoursTz || 'Asia/Shanghai');
   const [logoUrl, setLogoUrl] = useState(siteSettings?.logoUrl || '');
@@ -2450,6 +3034,9 @@ function SettingsManager() {
         metaPixelId: metaPixelId || '',
         fbCapiAccessToken: fbCapiAccessToken || '',
         fbCapiTestCode: fbCapiTestCode || '',
+        ga4MeasurementId: ga4MeasurementId || '',
+        gadsConversionId: gadsConversionId || '',
+        gadsConversionLabel: gadsConversionLabel || '',
         workingHours,
         workingHoursTz,
         crmWebhookUrl: crmWebhookUrl || '',
@@ -2651,6 +3238,24 @@ function SettingsManager() {
               <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.fb_capi_test_code', 'Test Event Code (optional)')}</label>
               <input type="text" value={fbCapiTestCode} onChange={e => setFbCapiTestCode(e.target.value)} placeholder="TEST12345" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
               <p className="mt-1 text-xs text-[#8892B0]">{t('admin.fb_capi_test_hint', 'Use during testing. Events will appear in Events Manager → Test Events tab. Remove after verification.')}</p>
+            </div>
+            <div className="md:col-span-2 border-t border-white/10 pt-4 mt-2">
+              <h4 className="text-sm font-bold text-[#E6F1FF] mb-3">Google Analytics 4 + Google Ads</h4>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">GA4 Measurement ID</label>
+              <input type="text" value={ga4MeasurementId} onChange={e => setGa4MeasurementId(e.target.value)} placeholder="G-XXXXXXXXXX" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">Leave empty to disable. Get from Google Analytics → Admin → Data Streams → Measurement ID. Tracks page views and lead events.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Google Ads Conversion ID</label>
+              <input type="text" value={gadsConversionId} onChange={e => setGadsConversionId(e.target.value)} placeholder="AW-XXXXXXXXX" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">Get from Google Ads → Tools → Conversions → Conversion ID (format: AW-123456789).</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Google Ads Conversion Label</label>
+              <input type="text" value={gadsConversionLabel} onChange={e => setGadsConversionLabel(e.target.value)} placeholder="AbCdEfGhIjK" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">Get from the same conversion action settings. Required for conversion tracking to work with Google Ads.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.working_hours', 'Working Hours')}</label>

@@ -5,6 +5,15 @@ import { db, auth } from '../firebase';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Filter, ArrowRight, FileText } from 'lucide-react';
 import SEO from '../components/SEO';
+import { trackEvent } from '../lib/pixel';
+import { gtagEvent } from '../lib/gtag';
+
+interface VehicleFitment {
+  year?: number | string;
+  make?: string;
+  model?: string;
+  displayName?: string;
+}
 
 interface Product {
   id: string;
@@ -15,6 +24,9 @@ interface Product {
   price: number;
   imageUrls?: string[];
   catalogUrl?: string;
+  oemNumber?: string;
+  techSpecs?: { compatibility?: string };
+  fitments?: VehicleFitment[];
 }
 
 interface Category {
@@ -30,6 +42,12 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [selectedParentCategory, setSelectedParentCategory] = useState('');
+  const [selectedProductName, setSelectedProductName] = useState('');
+  // YMM cascading filter state
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedMake, setSelectedMake] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -42,6 +60,16 @@ export default function Products() {
       setSearchTerm(searchParam);
     }
   }, [searchParams]);
+
+  // Debounced search event tracking (fires 800ms after the user stops typing)
+  useEffect(() => {
+    if (!searchTerm || searchTerm.length < 2) return;
+    const timer = setTimeout(() => {
+      trackEvent('Search', { search_string: searchTerm });
+      gtagEvent('search', { search_term: searchTerm });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,12 +99,69 @@ export default function Products() {
     );
   };
 
+  // Get unique product names for the selected parent category
+  const productNamesInCategory = selectedParentCategory
+    ? [...new Set(products.filter(p => p.categoryId === selectedParentCategory).map(p => p.name))].sort()
+    : [];
+
+  // === YMM cascading dropdown options (derived from product fitments) ===
+  const allFitments: VehicleFitment[] = products.flatMap(p => p.fitments || []);
+
+  const yearOptions = [...new Set(
+    allFitments.map(f => f.year != null ? String(f.year) : '').filter(Boolean)
+  )].sort((a, b) => Number(b) - Number(a)); // newest first
+
+  const makeOptions = [...new Set(
+    allFitments
+      .filter(f => !selectedYear || String(f.year) === selectedYear)
+      .map(f => f.make || '')
+      .filter(Boolean)
+  )].sort();
+
+  const modelOptions = [...new Set(
+    allFitments
+      .filter(f => !selectedYear || String(f.year) === selectedYear)
+      .filter(f => !selectedMake || f.make === selectedMake)
+      .map(f => f.model || '')
+      .filter(Boolean)
+  )].sort();
+
+  // Match a product against the YMM filters (returns true if no YMM filter is set).
+  const matchesYMM = (product: Product) => {
+    if (!selectedYear && !selectedMake && !selectedModel) return true;
+    const fits = product.fitments || [];
+    if (fits.length === 0) return false;
+    return fits.some(f =>
+      (!selectedYear || String(f.year) === selectedYear) &&
+      (!selectedMake || f.make === selectedMake) &&
+      (!selectedModel || f.model === selectedModel)
+    );
+  };
+
   const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase();
+    // P0: search now also matches free-text compatibility + YMM displayName/triple
+    const fitmentText = (product.fitments || [])
+      .map(f => f.displayName || [f.year, f.make, f.model].filter(Boolean).join(' '))
+      .join(' ')
+      .toLowerCase();
+    const matchesSearch = !term ||
+      product.name.toLowerCase().includes(term) ||
+      product.sku.toLowerCase().includes(term) ||
+      (product.oemNumber || '').toLowerCase().includes(term) ||
+      (product.techSpecs?.compatibility || '').toLowerCase().includes(term) ||
+      fitmentText.includes(term);
     const matchesCategory = selectedCategoryIds.length === 0 || selectedCategoryIds.includes(product.categoryId);
-    return matchesSearch && matchesCategory;
+    const matchesParent = !selectedParentCategory || product.categoryId === selectedParentCategory;
+    const matchesName = !selectedProductName || product.name === selectedProductName;
+    return matchesSearch && matchesCategory && matchesParent && matchesName && matchesYMM(product);
   });
+
+  const resetYMM = () => {
+    setSelectedYear('');
+    setSelectedMake('');
+    setSelectedModel('');
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -84,6 +169,11 @@ export default function Products() {
         title="Auto Parts Catalog - Vida Auto Wholesale"
         description="Browse Vida Auto's full catalog of OEM and aftermarket auto parts. Filter by category, search by SKU, and request bulk wholesale quotes."
         path="/products"
+        noindex={searchParams.toString().length > 0}
+        breadcrumbs={[
+          { name: 'Home', url: '/' },
+          { name: 'Products', url: '/products' },
+        ]}
       />
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-[#E6F1FF] mb-4 md:mb-0">{t('products.title')}</h1>
@@ -103,6 +193,74 @@ export default function Products() {
           </div>
         </form>
       </div>
+
+      {/* Dropdown Filters */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <select
+          value={selectedParentCategory}
+          onChange={(e) => { setSelectedParentCategory(e.target.value); setSelectedProductName(''); }}
+          className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[160px]"
+        >
+          <option value="">{t('products.all_categories', '全部分类')}</option>
+          {categories.map(cat => (
+            <option key={cat.id} value={cat.id}>{cat.name}</option>
+          ))}
+        </select>
+        {selectedParentCategory && productNamesInCategory.length > 0 && (
+          <select
+            value={selectedProductName}
+            onChange={(e) => setSelectedProductName(e.target.value)}
+            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[160px]"
+          >
+            <option value="">{t('products.all_products', '全部产品')}</option>
+            {productNamesInCategory.map(name => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* YMM (Year / Make / Model) cascading filter — only shows when product fitment data exists */}
+      {yearOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <span className="text-xs uppercase tracking-wider text-[#8892B0]">{t('products.find_for_vehicle', 'Find parts for your vehicle')}</span>
+          <select
+            value={selectedYear}
+            onChange={(e) => { setSelectedYear(e.target.value); setSelectedMake(''); setSelectedModel(''); }}
+            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[120px]"
+          >
+            <option value="">{t('products.year', 'Year')}</option>
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select
+            value={selectedMake}
+            onChange={(e) => { setSelectedMake(e.target.value); setSelectedModel(''); }}
+            disabled={makeOptions.length === 0}
+            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[140px] disabled:opacity-50"
+          >
+            <option value="">{t('products.make', 'Make')}</option>
+            {makeOptions.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            disabled={modelOptions.length === 0}
+            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[140px] disabled:opacity-50"
+          >
+            <option value="">{t('products.model', 'Model')}</option>
+            {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          {(selectedYear || selectedMake || selectedModel) && (
+            <button
+              type="button"
+              onClick={resetYMM}
+              className="text-xs text-[#FFB300] hover:underline"
+            >
+              {t('products.clear_filter', 'Clear')}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Category Chips */}
       <div className="flex flex-wrap gap-2 mb-8">
@@ -153,13 +311,13 @@ export default function Products() {
           {filteredProducts.map((product) => (
             <Link key={product.id} to={`/products/${product.id}`} className="group">
               <div className="bg-[#112240] rounded-xl shadow-sm border border-white/5 overflow-hidden hover:border-[#FFB300]/50 transition-colors">
-                <div className="aspect-w-4 aspect-h-3 bg-[#0A192F]">
+                <div className="bg-[#0A192F] flex items-center justify-center">
                   {product.imageUrls && product.imageUrls.length > 0 ? (
                     <img 
                       src={product.imageUrls[0]} 
                       alt={product.name} 
                       loading="lazy"
-                      className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-48 object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
@@ -175,9 +333,9 @@ export default function Products() {
                 <div className="p-4">
                   <div className="text-xs text-[#FFB300] font-semibold mb-1 uppercase tracking-wider">{product.categoryName}</div>
                   <h3 className="text-lg font-bold text-white mb-1 truncate">{product.name}</h3>
-                  <p className="text-sm text-[#8892B0] mb-3">SKU: {product.sku}</p>
+                  <p className="text-sm text-[#8892B0] mb-1">SKU: {product.sku}</p>
+                  {product.oemNumber && <p className="text-xs text-[#8892B0] mb-2">OEM: {product.oemNumber}</p>}
                   <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-white">${product.price.toFixed(2)}</span>
                     <div className="flex items-center space-x-2">
                       {product.catalogUrl && (
                         <button 

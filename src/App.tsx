@@ -12,6 +12,7 @@ import MainLayout from './components/layout/MainLayout';
 
 // Tracking
 import MetaPixel from './components/MetaPixel';
+import GoogleAnalytics from './components/GoogleAnalytics';
 
 // Pages
 import Home from './pages/Home';
@@ -21,6 +22,10 @@ import UserCenter from './pages/UserCenter';
 import AdminDashboard from './pages/AdminDashboard';
 import About from './pages/About';
 import Debug from './pages/Debug';
+import ShipTo from './pages/ShipTo';
+import Blog from './pages/Blog';
+import BlogPost from './pages/BlogPost';
+import Factory from './pages/Factory';
 
 export default function App() {
   const { setUser, setUserRole, setAuthReady, setSiteSettings } = useStore();
@@ -85,6 +90,8 @@ export default function App() {
             await setDoc(userRef, {
               uid: currentUser.uid,
               email: currentUser.email,
+              displayName: currentUser.displayName || '',
+              photoURL: currentUser.photoURL || '',
               role: role,
               createdAt: new Date().toISOString()
             });
@@ -106,13 +113,19 @@ export default function App() {
   return (
     <Router>
       <MetaPixel />
+      <GoogleAnalytics />
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Home />} />
           <Route path="products" element={<Products />} />
           <Route path="products/:id" element={<ProductDetail />} />
           <Route path="about" element={<About />} />
+          <Route path="factory" element={<Factory />} />
           <Route path="user" element={<UserCenter />} />
+          <Route path="blog" element={<Blog />} />
+          <Route path="blog/:slug" element={<BlogPost />} />
+          <Route path="ship-to" element={<ShipTo />} />
+          <Route path="ship-to/:region" element={<ShipTo />} />
           <Route path="admin" element={<AdminDashboard />} />
           <Route path="debug" element={<Debug />} />
         </Route>

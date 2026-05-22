@@ -37,6 +37,7 @@ export default function LazyVideo({
 }: LazyVideoProps) {
   const ref = useRef<HTMLDivElement | HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(!lazy);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     if (!lazy) return;
@@ -73,6 +74,22 @@ export default function LazyVideo({
     );
   }
 
+  // Decode error: silently fall back to poster image
+  if (hasError) {
+    return (
+      <div
+        ref={ref as React.RefObject<HTMLDivElement>}
+        className={className}
+        style={{
+          ...style,
+          ...(poster
+            ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : { backgroundColor: '#112240' }),
+        }}
+      />
+    );
+  }
+
   // In viewport: render video element directly (no wrapper)
   return (
     <video
@@ -84,7 +101,7 @@ export default function LazyVideo({
       muted
       playsInline
       preload={preload}
-      onError={(e) => console.error('[LazyVideo] Error loading video:', src, e)}
+      onError={() => { console.warn('[LazyVideo] Decode error, falling back to poster:', src); setHasError(true); }}
       className={className}
       style={style}
     />

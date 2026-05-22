@@ -277,5 +277,23 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    match /blogPosts/{postId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /users/{userId}/favorites/{favId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
   }
 }

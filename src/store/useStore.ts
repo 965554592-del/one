@@ -53,6 +53,10 @@ interface SiteSettings {
   notifyEmails?: string;
   emailAutoReplyEnabled?: boolean;
   emailNotifyEnabled?: boolean;
+  ga4MeasurementId?: string;
+  gadsConversionId?: string;
+  gadsConversionLabel?: string;
+  brandLogos?: { imageUrl: string; categoryId: string; label: string }[];
 }
 
 interface AppState {
@@ -99,6 +103,9 @@ export const useStore = create<AppState>((set) => ({
     featuresLayout: 'classic',
     statsRegions: '45+',
     statsSkus: '12.5k',
+    ga4MeasurementId: '',
+    gadsConversionId: '',
+    gadsConversionLabel: '',
     salesRegions: [
       { name: '广州 (总部)', lat: 23.1291, lon: 113.2644 },
       { name: '迪拜', lat: 25.2048, lon: 55.2708 },

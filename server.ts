@@ -4,8 +4,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import fs from "fs";
+import os from "os";
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -174,6 +177,71 @@ async function startServer() {
       console.warn(`[Delete] File not found on disk: ${fileName}`);
       res.status(404).json({ error: "File not found" });
     }
+  });
+
+  // ─── Video Transcode Endpoint ──────────────────────────────
+  // Accepts an MP4/MOV upload, detects H.265/HEVC, transcodes to H.264,
+  // and returns the transcoded file so the browser can upload it to
+  // Firebase Storage via the normal client-side SDK.
+  //
+  // POST /api/transcode  (multipart/form-data, field name "file")
+  // Response: the transcoded MP4 as application/octet-stream
+  // ──────────────────────────────────────────────────────────
+  if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
+
+  app.post("/api/transcode", (req, res) => {
+    upload.single('file')(req, res, async (err) => {
+      if (err) {
+        console.error("[Transcode] Multer error:", err);
+        return res.status(500).json({ error: `Upload error: ${err.message}` });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const inputPath = req.file.path;
+      const outputPath = path.join(os.tmpdir(), `transcode-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
+
+      console.log(`[Transcode] Starting: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(1)}MB)`);
+
+      ffmpeg(inputPath)
+        .videoCodec('libx264')
+        .outputOptions([
+          '-pix_fmt', 'yuv420p',
+          '-movflags', '+faststart',
+          '-preset', 'fast',
+          '-crf', '23',
+        ])
+        .audioCodec('aac')
+        .on('start', (cmd: string) => console.log(`[Transcode] ffmpeg: ${cmd}`))
+        .on('progress', (p: any) => {
+          if (p.percent) console.log(`[Transcode] Progress: ${Math.round(p.percent)}%`);
+        })
+        .on('end', () => {
+          console.log(`[Transcode] Done: ${outputPath}`);
+          const stat = fs.statSync(outputPath);
+          res.setHeader('Content-Type', 'video/mp4');
+          res.setHeader('Content-Length', stat.size.toString());
+          res.setHeader('Content-Disposition', `attachment; filename="transcoded.mp4"`);
+
+          const stream = fs.createReadStream(outputPath);
+          stream.pipe(res);
+          stream.on('end', () => {
+            // Cleanup temp files
+            try { fs.unlinkSync(inputPath); } catch {}
+            try { fs.unlinkSync(outputPath); } catch {}
+          });
+        })
+        .on('error', (ffErr: Error) => {
+          console.error("[Transcode] ffmpeg error:", ffErr);
+          try { fs.unlinkSync(inputPath); } catch {}
+          try { fs.unlinkSync(outputPath); } catch {}
+          if (!res.headersSent) {
+            res.status(500).json({ error: `Transcode failed: ${ffErr.message}` });
+          }
+        })
+        .save(outputPath);
+    });
   });
 
   // Background task simulation

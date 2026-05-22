@@ -1,0 +1,61 @@
+# robots.txt - https://autoparts.fit
+# Reference: https://developers.google.com/search/docs/crawling-indexing/robots/create-robots-txt
+
+# Default rules for all crawlers
+User-agent: *
+Allow: /
+Disallow: /products?
+Disallow: /admin
+Disallow: /debug
+Disallow: /user
+
+# Search engine crawlers - full access
+User-agent: Googlebot
+Allow: /
+Disallow: /products?
+Disallow: /admin
+Disallow: /debug
+Disallow: /user
+
+User-agent: Googlebot-Image
+Allow: /
+
+# AdsBot must be explicitly named (wildcard * does not cover it)
+User-agent: AdsBot-Google
+User-agent: AdsBot-Google-Mobile
+Allow: /
+Disallow: /admin
+Disallow: /debug
+Disallow: /user
+
+# AI crawlers - training data blocked, real-time search allowed
+# Block model training crawlers
+User-agent: GPTBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+# Allow AI real-time search/browsing (drives traffic back to site)
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /admin
+Disallow: /debug
+Disallow: /user
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /admin
+Disallow: /debug
+Disallow: /user
+
+Sitemap: https://autoparts.fit/sitemap.xml

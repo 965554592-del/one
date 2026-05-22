@@ -15,12 +15,13 @@ export interface InquiryPayload {
   company: string;
   email: string;
   phone: string;
-  vehicleModel: string;
-  partNeed: string;
-  quantity: string;
+  vehicleModel?: string;
+  partNeed?: string;
+  quantity?: string;
   message: string;
   source: string;
   createdAt: string;
+  country?: string;
 }
 
 /**
