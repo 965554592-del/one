@@ -459,7 +459,7 @@ export default function Home() {
             {starProduct ? starProduct.name : t('home.featured_name')}
           </h3>
           <img 
-            src={starProduct?.images?.[0] || "https://picsum.photos/seed/nanabuana-part/400/300"} 
+            src={starProduct?.imageUrls?.[0] || "https://picsum.photos/seed/nanabuana-part/400/300"} 
             alt={starProduct?.name || "Featured Product"} 
             loading="lazy" 
             className="flex-1 min-h-[100px] mt-2 rounded-lg object-contain w-full bg-[#0A192F] p-2 group-hover:scale-[1.03] transition-transform duration-300" 
