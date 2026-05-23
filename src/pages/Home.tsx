@@ -287,7 +287,7 @@ export default function Home() {
   const BenefitCard = ({ titleKey, descKey, modern }: { titleKey: string, descKey: string, modern?: boolean }) => {
     if (!t(titleKey)) return null;
     return (
-      <div className={`${modern ? 'bg-white/5 border-white/5' : 'bg-black/40 border-white/10'} backdrop-blur-sm border p-6 rounded-xl text-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300`}>
+      <div className={`${modern ? 'bg-white/5 border-white/5' : 'bg-black/20 border-white/10'} backdrop-blur-[2px] border p-6 rounded-xl text-center hover:border-[#FFB300]/50 hover:bg-black/40 transition-all hover:-translate-y-1 duration-300`}>
         <h4 className={getHeroStyle(titleKey, 'text-lg font-bold text-[#E6F1FF] mb-2')}>{t(titleKey)}</h4>
         <p className="text-sm text-[#8892B0] leading-relaxed">{t(descKey)}</p>
       </div>
@@ -342,7 +342,7 @@ export default function Home() {
         ) : (
           <div className="w-full aspect-[16/9] bg-[#112240]"></div>
         )}
-        <div className={`absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/10 to-black/30' : 'from-[#0A192F]/40 to-[#0A192F]/70'}`}></div>
+        <div className={`absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/0 to-black/20' : 'from-[#0A192F]/15 to-[#0A192F]/45'}`}></div>
 
         {/* Content - overlaid on top of image */}
         <div className="absolute inset-0 z-10 flex flex-col justify-center items-center py-8 px-4 max-w-7xl mx-auto w-full overflow-y-auto" style={{ left: '50%', transform: 'translateX(-50%)' }}>
@@ -384,7 +384,7 @@ export default function Home() {
 
             {siteSettings.featuresLayout === 'modern' && (
               <div className="flex flex-col gap-12 w-full">
-                <div className="flex flex-col md:flex-row justify-between items-center bg-black/30 backdrop-blur-md rounded-3xl p-8 border border-white/5 shadow-2xl">
+                <div className="flex flex-col md:flex-row justify-between items-center bg-black/15 backdrop-blur-[2px] rounded-3xl p-8 border border-white/5 shadow-2xl">
                    <div className="flex flex-wrap justify-center gap-12 flex-1">
                       <div className="text-center group">
                         <div className={getHeroStyle('hero.partners', 'text-4xl md:text-5xl font-black text-[#FFB300] group-hover:scale-110 transition-transform')}>{t('hero.partners')}</div>
@@ -412,7 +412,7 @@ export default function Home() {
 
             {siteSettings.featuresLayout === 'split' && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch w-full">
-                <div className="lg:col-span-4 bg-black/20 backdrop-blur-sm border border-white/10 rounded-2xl p-8 flex flex-col justify-center space-y-12">
+                <div className="lg:col-span-4 bg-black/10 backdrop-blur-[2px] border border-white/10 rounded-2xl p-8 flex flex-col justify-center space-y-12">
                    <div className="group">
                       <div className="text-3xl font-bold text-[#FFB300]">{t('hero.partners')}</div>
                       <div className="text-xs text-[#8892B0]">{t('hero.partners_desc')}</div>
