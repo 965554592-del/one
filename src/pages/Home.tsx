@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { lazy, Suspense, useState, useEffect } from 'react';
-import { Search, CheckCircle, Send, Lightbulb, Disc, Filter, Car, LayoutGrid, ArrowRight, ShieldCheck, FileText, Download } from 'lucide-react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
+import { Search, CheckCircle, Send, Lightbulb, Disc, Filter, Car, LayoutGrid, ArrowRight, ShieldCheck, FileText, Download, ChevronDown } from 'lucide-react';
 
 import { useStore } from '../store/useStore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
@@ -18,6 +18,57 @@ import { GlobeErrorBoundary } from '../components/GlobeErrorBoundary';
 import ProfileGateModal from '../components/ProfileGateModal';
 
 const Globe = lazy(() => import('../components/Globe'));
+
+/** Custom dropdown whose popup matches the trigger's width (native <select> ignores CSS width). */
+function YMMSelect({ value, onChange, placeholder, options }: { value: string; onChange: (v: string) => void; placeholder: string; options: string[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative w-full min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-1 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 hover:border-[#FFB300]/40"
+      >
+        <span className="truncate">{value || placeholder}</span>
+        <ChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-y-auto bg-[#0A192F] border border-[#FFB300]/30 rounded-lg shadow-xl">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="w-full text-left px-2 py-1.5 text-xs text-[#8892B0] hover:bg-[#FFB300]/10 truncate"
+          >
+            {placeholder}
+          </button>
+          {options.map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => { onChange(opt); setOpen(false); }}
+              className={`w-full text-left px-2 py-1.5 text-xs truncate hover:bg-[#FFB300]/10 ${value === opt ? 'text-[#FFB300]' : 'text-white'}`}
+              title={opt}
+            >
+              {opt}
+            </button>
+          ))}
+          {options.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-[#8892B0]">—</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Home() {
   const { t } = useTranslation();
@@ -580,33 +631,29 @@ export default function Home() {
               const makeOpts = [...new Set(vehicles.filter(v => !searchYear || String(v.year) === searchYear).map(v => v.make || '').filter(Boolean))].sort();
               const modelOpts = [...new Set(vehicles.filter(v => (!searchYear || String(v.year) === searchYear) && (!searchMake || v.make === searchMake)).map(v => v.model || '').filter(Boolean))].sort();
               return (
-                <div className="grid grid-cols-3 gap-2 w-full">
-                  <select
-                    value={searchYear}
-                    onChange={(e) => { setSearchYear(e.target.value); setSearchMake(''); setSearchModel(''); }}
-                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
-                  >
-                    <option value="">{t('products.year', 'Year')}</option>
-                    {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  <select
-                    value={searchMake}
-                    onChange={(e) => { setSearchMake(e.target.value); setSearchModel(''); }}
-                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
-                  >
-                    <option value="">{t('products.make', 'Make')}</option>
-                    {makeOpts.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                  <select
-                    value={searchModel}
-                    onChange={(e) => setSearchModel(e.target.value)}
-                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
-                  >
-                    <option value="">{t('products.model', 'Model')}</option>
-                    {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
+                <div>
+                  <div className="grid grid-cols-3 gap-2 w-full">
+                    <YMMSelect
+                      value={searchYear}
+                      onChange={(v) => { setSearchYear(v); setSearchMake(''); setSearchModel(''); }}
+                      placeholder={t('products.year', 'Year')}
+                      options={yearOpts}
+                    />
+                    <YMMSelect
+                      value={searchMake}
+                      onChange={(v) => { setSearchMake(v); setSearchModel(''); }}
+                      placeholder={t('products.make', 'Make')}
+                      options={makeOpts}
+                    />
+                    <YMMSelect
+                      value={searchModel}
+                      onChange={setSearchModel}
+                      placeholder={t('products.model', 'Model')}
+                      options={modelOpts}
+                    />
+                  </div>
                   {(searchYear || searchMake || searchModel) && (
-                    <button type="button" onClick={() => { setSearchYear(''); setSearchMake(''); setSearchModel(''); }} className="text-[11px] text-[#FFB300] hover:underline px-2">
+                    <button type="button" onClick={() => { setSearchYear(''); setSearchMake(''); setSearchModel(''); }} className="mt-2 text-[11px] text-[#FFB300] hover:underline">
                       {t('products.clear_filter', 'Clear')}
                     </button>
                   )}
