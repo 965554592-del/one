@@ -69,8 +69,23 @@ export default function Home() {
   useEffect(() => {
     const fetchVehicles = async () => {
       try {
+        // Primary source: dedicated 'vehicles' reference collection
         const snap = await getDocs(collection(db, 'vehicles'));
-        setVehicles(snap.docs.map(d => d.data()));
+        const list = snap.docs.map(d => d.data());
+        if (list.length > 0) {
+          setVehicles(list);
+          return;
+        }
+        // Fallback: aggregate fitments from products
+        const pSnap = await getDocs(collection(db, 'products'));
+        const fromProducts: any[] = [];
+        pSnap.docs.forEach(d => {
+          const fits = (d.data() as any).fitments || [];
+          fits.forEach((f: any) => {
+            if (f && (f.year || f.make || f.model)) fromProducts.push(f);
+          });
+        });
+        setVehicles(fromProducts);
       } catch (e) { console.warn('vehicles unavailable:', e); }
     };
     fetchVehicles();
