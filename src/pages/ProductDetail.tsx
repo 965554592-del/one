@@ -282,34 +282,45 @@ export default function ProductDetail() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
           {/* Image Gallery & Video */}
           <div className="p-8 bg-[#0A192F] border-r border-white/5">
-            <div className="aspect-w-4 aspect-h-3 bg-[#112240] rounded-xl overflow-hidden border border-white/5 mb-4 relative flex items-center justify-center">
+            <div className="bg-[#112240] rounded-xl overflow-hidden border border-white/5 mb-4 relative flex items-center justify-center">
               {product.videoUrl && activeImage === -1 ? (
-                <video 
-                  src={product.videoUrl} 
-                  controls 
-                  className="w-full h-96 object-contain"
+                <video
+                  src={product.videoUrl}
+                  controls
+                  className="w-full max-h-[70vh] object-contain"
                   poster={product.imageUrls?.[0]}
                   onError={() => { console.warn('[ProductDetail] Video decode error, switching to image'); setActiveImage(0); }}
                 />
               ) : product.imageUrls && product.imageUrls.length > 0 ? (
-                <img 
-                  src={product.imageUrls[activeImage === -1 ? 0 : activeImage]} 
-                  alt={product.name} 
-                  loading="lazy"
-                  className="w-full h-96 object-contain"
-                  referrerPolicy="no-referrer"
-                />
+                <a
+                  href={product.imageUrls[activeImage === -1 ? 0 : activeImage]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block w-full group relative"
+                  title={t('products.view_original', 'Click to view original')}
+                >
+                  <img
+                    src={product.imageUrls[activeImage === -1 ? 0 : activeImage]}
+                    alt={product.name}
+                    decoding="async"
+                    className="w-full max-h-[70vh] object-contain"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="absolute bottom-2 right-2 text-[10px] bg-black/60 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                    {t('products.view_original', 'View original')}
+                  </span>
+                </a>
               ) : (
-                <img 
-                  src={`https://picsum.photos/seed/nanabuana-${product.id}/800/600`} 
-                  alt={product.name} 
+                <img
+                  src={`https://picsum.photos/seed/nanabuana-${product.id}/800/600`}
+                  alt={product.name}
                   loading="lazy"
-                  className="w-full h-96 object-cover opacity-80"
+                  className="w-full max-h-[70vh] object-cover opacity-80"
                   referrerPolicy="no-referrer"
                 />
               )}
             </div>
-            
+
             <div className="flex space-x-4 overflow-x-auto pb-2">
               {product.videoUrl && (
                 <button
@@ -326,11 +337,11 @@ export default function ProductDetail() {
                 <button
                   key={index}
                   onClick={() => setActiveImage(index)}
-                  className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors ${
+                  className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors bg-[#0A192F] ${
                     activeImage === index ? 'border-[#FFB300]' : 'border-transparent hover:border-[#FFB300]/50'
                   }`}
                 >
-                  <img src={url} alt={`${product.name} ${index + 1}`} loading="lazy" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <img src={url} alt={`${product.name} ${index + 1}`} loading="lazy" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                 </button>
               ))}
             </div>
