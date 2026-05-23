@@ -193,7 +193,7 @@ export default function AdminDashboard() {
           <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         {/* Content Area */}
-        <div className="flex-1 bg-[#112240] rounded-xl shadow-sm border border-white/5 p-6 min-h-[600px]">
+        <div className="flex-1 min-w-0 bg-[#112240] rounded-xl shadow-sm border border-white/5 p-6 min-h-[600px]">
           {activeTab === 'dashboard' && <DashboardOverview />}
           {activeTab === 'products' && <ProductsManager />}
           {activeTab === 'categories' && <CategoriesManager />}
