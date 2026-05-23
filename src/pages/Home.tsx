@@ -323,25 +323,29 @@ export default function Home() {
         }}
       />
       {/* HERO SECTION - FULL WIDTH */}
-      <div className="relative w-full min-h-[500px] aspect-[2408/1152] max-h-[75vh] flex flex-col justify-center items-center py-16 overflow-hidden mb-8">
-        {/* Background Video/Image */}
+      <div className="relative w-full overflow-hidden mb-8 bg-[#0A192F]">
+        {/* Background Video/Image - displayed at natural aspect ratio */}
         {siteSettings?.heroVideoUrl ? (
           <LazyVideo
             src={siteSettings.heroVideoUrl}
             poster={siteSettings.heroBgUrl}
-            className="absolute inset-0 w-full h-full z-0 object-cover object-center"
+            className="block w-full h-auto"
             lazy={false}
             preload="metadata"
           />
         ) : siteSettings?.heroBgUrl ? (
-          <div className="absolute inset-0 w-full h-full bg-cover bg-center bg-fixed" style={{ backgroundImage: `url(${siteSettings.heroBgUrl})` }}></div>
+          <img
+            src={siteSettings.heroBgUrl}
+            alt=""
+            className="block w-full h-auto"
+          />
         ) : (
-          <div className="absolute inset-0 w-full h-full bg-[#112240]"></div>
+          <div className="w-full aspect-[16/9] bg-[#112240]"></div>
         )}
-        <div className={`absolute inset-0 bg-gradient-to-b ${siteSettings?.heroVideoUrl ? 'from-black/10 to-black/30' : 'from-[#0A192F]/60 to-[#0A192F]/85'}`}></div>
+        <div className={`absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/10 to-black/30' : 'from-[#0A192F]/40 to-[#0A192F]/70'}`}></div>
 
-        {/* Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-4 w-full flex flex-col items-center">
+        {/* Content - overlaid on top of image */}
+        <div className="absolute inset-0 z-10 flex flex-col justify-center items-center py-8 px-4 max-w-7xl mx-auto w-full overflow-y-auto" style={{ left: '50%', transform: 'translateX(-50%)' }}>
           {/* Key Indicators & Benefits Section */}
           <div className="w-full">
             {(!siteSettings?.featuresLayout || siteSettings.featuresLayout === 'classic') && (
