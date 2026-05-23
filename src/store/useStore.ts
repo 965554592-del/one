@@ -60,6 +60,16 @@ interface SiteSettings {
   gadsConversionId?: string;
   gadsConversionLabel?: string;
   brandLogos?: { imageUrl: string; categoryId: string; label: string }[];
+  aboutSections?: AboutSection[];
+}
+
+export interface AboutSection {
+  id: string;
+  layout: 'text-left-image-right' | 'image-left-text-right' | 'image-top-text-bottom' | 'text-top-image-bottom' | 'text-only' | 'image-only';
+  title?: string;
+  text?: string;
+  imageUrl?: string;
+  videoUrl?: string;
 }
 
 interface AppState {

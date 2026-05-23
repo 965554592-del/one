@@ -136,6 +136,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'qualifications', label: t('admin.qualifications'), icon: ShieldCheck },
     { id: 'certificates', label: t('admin.certificates_tab'), icon: ShieldCheck },
     { id: 'brand-logos', label: t('admin.brand_logos', 'Brand Logos'), icon: Layers },
+    { id: 'about-sections', label: t('admin.about_sections', 'About Sections'), icon: FileText },
     { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
@@ -206,6 +207,7 @@ export default function AdminDashboard() {
           {activeTab === 'contacts' && <ContactsManager />}
           {activeTab === 'certificates' && <CertificatesManager />}
           {activeTab === 'brand-logos' && <BrandLogosManager />}
+          {activeTab === 'about-sections' && <AboutSectionsManager />}
           {activeTab === 'blog' && <BlogManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
@@ -687,6 +689,236 @@ function BrandLogosManager() {
           {t('admin.no_brand_logos', 'No brand logos added yet')}
         </div>
       )}
+
+      {isSaving && (
+        <div className="fixed bottom-8 right-8 bg-[#FFB300] text-[#0A192F] px-4 py-2 rounded-full shadow-2xl flex items-center animate-bounce">
+          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          {t('admin.saving')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AboutSectionsManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [sections, setSections] = useState<any[]>(siteSettings?.aboutSections || []);
+  const [isSaving, setIsSaving] = useState(false);
+  const [uploadingIdx, setUploadingIdx] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (siteSettings?.aboutSections) setSections(siteSettings.aboutSections);
+  }, [siteSettings]);
+
+  const persist = async (updated: any[]) => {
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'global'), { aboutSections: updated }, { merge: true });
+      setSiteSettings({ ...siteSettings, aboutSections: updated });
+      setSections(updated);
+    } catch (e: any) {
+      console.error('Save aboutSections failed:', e);
+      alert(t('admin.save_failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const addSection = () => {
+    const newSection = {
+      id: `sec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      layout: 'image-left-text-right',
+      title: '',
+      text: '',
+      imageUrl: '',
+      videoUrl: '',
+    };
+    persist([...sections, newSection]);
+  };
+
+  const updateField = (id: string, patch: any) => {
+    setSections(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  };
+
+  const saveField = (id: string, patch: any) => {
+    const updated = sections.map(s => s.id === id ? { ...s, ...patch } : s);
+    persist(updated);
+  };
+
+  const removeSection = (id: string) => {
+    if (!confirm(t('admin.confirm_delete', 'Are you sure?'))) return;
+    const target = sections.find(s => s.id === id);
+    if (target?.imageUrl) deleteFileFromServer(target.imageUrl);
+    if (target?.videoUrl) deleteFileFromServer(target.videoUrl);
+    persist(sections.filter(s => s.id !== id));
+  };
+
+  const moveSection = (id: string, dir: -1 | 1) => {
+    const idx = sections.findIndex(s => s.id === id);
+    if (idx < 0) return;
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= sections.length) return;
+    const updated = [...sections];
+    [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
+    persist(updated);
+  };
+
+  const handleMediaUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    id: string,
+    kind: 'imageUrl' | 'videoUrl'
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingIdx(`${id}-${kind}`);
+    try {
+      const url = await uploadFile(file, 'about-sections');
+      const target = sections.find(s => s.id === id);
+      if (target?.[kind]) deleteFileFromServer(target[kind]);
+      saveField(id, { [kind]: url });
+    } catch (err: any) {
+      alert(`${t('admin.upload_failed', 'Upload failed')}: ${err?.message || ''}`);
+    } finally {
+      setUploadingIdx(null);
+    }
+  };
+
+  const layoutOptions: { value: any; label: string }[] = [
+    { value: 'image-left-text-right', label: t('admin.layout_image_left', 'Image Left / Text Right') },
+    { value: 'text-left-image-right', label: t('admin.layout_text_left', 'Text Left / Image Right') },
+    { value: 'image-top-text-bottom', label: t('admin.layout_image_top', 'Image Top / Text Bottom') },
+    { value: 'text-top-image-bottom', label: t('admin.layout_text_top', 'Text Top / Image Bottom') },
+    { value: 'text-only', label: t('admin.layout_text_only', 'Text Only') },
+    { value: 'image-only', label: t('admin.layout_image_only', 'Image / Video Only') },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.about_sections', 'About Sections')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">{t('admin.about_sections_desc', 'Build the About Us page with flexible image/video + text blocks. Drag-style reorder via arrows.')}</p>
+        </div>
+        <button
+          onClick={addSection}
+          className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />{t('admin.add_section', 'Add Section')}
+        </button>
+      </div>
+
+      {sections.length === 0 && (
+        <div className="text-center py-12 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl">
+          {t('admin.no_about_sections', 'No sections yet. Click "Add Section" to start.')}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {sections.map((s, i) => (
+          <div key={s.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#8892B0]">#{i + 1}</span>
+                <button onClick={() => moveSection(s.id, -1)} disabled={i === 0} className="text-xs px-2 py-1 border border-white/10 rounded hover:bg-white/5 disabled:opacity-30">↑</button>
+                <button onClick={() => moveSection(s.id, 1)} disabled={i === sections.length - 1} className="text-xs px-2 py-1 border border-white/10 rounded hover:bg-white/5 disabled:opacity-30">↓</button>
+              </div>
+              <button onClick={() => removeSection(s.id)} className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1">
+                <Trash2 className="w-3 h-3" />{t('admin.delete')}
+              </button>
+            </div>
+
+            {/* Layout */}
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.layout', 'Layout')}</label>
+              <select
+                value={s.layout}
+                onChange={e => saveField(s.id, { layout: e.target.value })}
+                className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
+              >
+                {layoutOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            {/* Title */}
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.title', 'Title')}</label>
+              <input
+                type="text"
+                value={s.title || ''}
+                onChange={e => updateField(s.id, { title: e.target.value })}
+                onBlur={e => saveField(s.id, { title: e.target.value })}
+                placeholder={t('admin.section_title_placeholder', 'Section heading (optional)')}
+                className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
+              />
+            </div>
+
+            {/* Text */}
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">{t('admin.body_text', 'Body Text')}</label>
+              <textarea
+                value={s.text || ''}
+                onChange={e => updateField(s.id, { text: e.target.value })}
+                onBlur={e => saveField(s.id, { text: e.target.value })}
+                rows={5}
+                placeholder={t('admin.section_text_placeholder', 'Section paragraph. Line breaks preserved.')}
+                className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
+              />
+            </div>
+
+            {/* Image */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.image', 'Image')}</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={s.imageUrl || ''}
+                    onChange={e => updateField(s.id, { imageUrl: e.target.value })}
+                    onBlur={e => saveField(s.id, { imageUrl: e.target.value })}
+                    placeholder="https://..."
+                    className="flex-1 min-w-0 px-3 py-2 bg-[#112240] border border-white/10 text-white text-xs rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                  />
+                  <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] flex items-center text-xs shrink-0">
+                    <Plus className="w-3 h-3 mr-1" />{uploadingIdx === `${s.id}-imageUrl` ? '...' : t('admin.select_file')}
+                    <input type="file" className="sr-only" accept="image/*" onChange={e => handleMediaUpload(e, s.id, 'imageUrl')} />
+                  </label>
+                </div>
+                {s.imageUrl && (
+                  <div className="mt-2 relative">
+                    <img src={s.imageUrl} alt="" className="w-full max-h-32 object-cover rounded border border-white/5" />
+                    <button onClick={() => { deleteFileFromServer(s.imageUrl); saveField(s.id, { imageUrl: '' }); }} className="absolute top-1 right-1 bg-[#0A192F]/80 text-red-400 hover:text-red-300 text-xs px-2 py-0.5 rounded">{t('admin.delete')}</button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.video', 'Video')} <span className="text-[10px] text-[#8892B0]/70">({t('admin.video_overrides_image', 'overrides image when set')})</span></label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={s.videoUrl || ''}
+                    onChange={e => updateField(s.id, { videoUrl: e.target.value })}
+                    onBlur={e => saveField(s.id, { videoUrl: e.target.value })}
+                    placeholder="https://...mp4"
+                    className="flex-1 min-w-0 px-3 py-2 bg-[#112240] border border-white/10 text-white text-xs rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                  />
+                  <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] flex items-center text-xs shrink-0">
+                    <Plus className="w-3 h-3 mr-1" />{uploadingIdx === `${s.id}-videoUrl` ? '...' : t('admin.select_file')}
+                    <input type="file" className="sr-only" accept="video/mp4" onChange={e => handleMediaUpload(e, s.id, 'videoUrl')} />
+                  </label>
+                </div>
+                {s.videoUrl && (
+                  <div className="mt-2 flex items-center justify-between bg-[#112240] border border-white/5 rounded p-2">
+                    <span className="text-xs text-[#E6F1FF] flex items-center gap-2"><Video className="w-3 h-3 text-[#FFB300]" />{t('admin.video_uploaded')}</span>
+                    <button onClick={() => { deleteFileFromServer(s.videoUrl); saveField(s.id, { videoUrl: '' }); }} className="text-xs text-red-400 hover:text-red-300">{t('admin.delete')}</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {isSaving && (
         <div className="fixed bottom-8 right-8 bg-[#FFB300] text-[#0A192F] px-4 py-2 rounded-full shadow-2xl flex items-center animate-bounce">
