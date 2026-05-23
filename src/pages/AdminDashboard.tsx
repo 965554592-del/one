@@ -1433,21 +1433,26 @@ function ProductsManager() {
     try {
       const selectedCategory = categories.find(c => c.id === newProduct.categoryId);
       const productData = {
-        sku: newProduct.sku,
-        name: newProduct.name,
-        categoryId: newProduct.categoryId,
+        sku: newProduct.sku || '',
+        name: newProduct.name || '',
+        categoryId: newProduct.categoryId || '',
         categoryName: selectedCategory?.name || '',
         price: parseFloat(newProduct.price) || 0,
-        oemNumber: newProduct.oemNumber,
+        oemNumber: newProduct.oemNumber || '',
         techSpecs: {
-          material: newProduct.material,
-          weight: newProduct.weight,
-          compatibility: newProduct.compatibility
+          material: newProduct.material || '',
+          weight: newProduct.weight || '',
+          compatibility: newProduct.compatibility || ''
         },
-        imageUrls: newProduct.imageUrls.filter(url => url !== ''),
-        videoUrl: newProduct.videoUrl,
-        catalogUrl: newProduct.catalogUrl,
-        fitments: selectedFitments.map(v => ({ year: v.year, make: v.make, model: v.model, displayName: v.displayName })),
+        imageUrls: (newProduct.imageUrls || []).filter(url => url !== ''),
+        videoUrl: newProduct.videoUrl || '',
+        catalogUrl: newProduct.catalogUrl || '',
+        fitments: selectedFitments.map(v => ({
+          year: v.year ?? '',
+          make: v.make ?? '',
+          model: v.model ?? '',
+          displayName: v.displayName ?? `${v.year ?? ''} ${v.make ?? ''} ${v.model ?? ''}`.trim()
+        })),
         updatedAt: new Date().toISOString()
       };
 
