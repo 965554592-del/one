@@ -580,11 +580,11 @@ export default function Home() {
               const makeOpts = [...new Set(vehicles.filter(v => !searchYear || String(v.year) === searchYear).map(v => v.make || '').filter(Boolean))].sort();
               const modelOpts = [...new Set(vehicles.filter(v => (!searchYear || String(v.year) === searchYear) && (!searchMake || v.make === searchMake)).map(v => v.model || '').filter(Boolean))].sort();
               return (
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-3 gap-2 w-full">
                   <select
                     value={searchYear}
                     onChange={(e) => { setSearchYear(e.target.value); setSearchMake(''); setSearchModel(''); }}
-                    className="flex-1 min-w-[100px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
                   >
                     <option value="">{t('products.year', 'Year')}</option>
                     {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
@@ -592,7 +592,7 @@ export default function Home() {
                   <select
                     value={searchMake}
                     onChange={(e) => { setSearchMake(e.target.value); setSearchModel(''); }}
-                    className="flex-1 min-w-[110px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
                   >
                     <option value="">{t('products.make', 'Make')}</option>
                     {makeOpts.map(m => <option key={m} value={m}>{m}</option>)}
@@ -600,7 +600,7 @@ export default function Home() {
                   <select
                     value={searchModel}
                     onChange={(e) => setSearchModel(e.target.value)}
-                    className="flex-1 min-w-[110px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                    className="w-full min-w-0 bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50 truncate"
                   >
                     <option value="">{t('products.model', 'Model')}</option>
                     {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
