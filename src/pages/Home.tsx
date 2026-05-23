@@ -26,6 +26,11 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState('');
   const [starProduct, setStarProduct] = useState<any>(null);
   const [homeCategories, setHomeCategories] = useState<any[]>([]);
+  // YMM filter state for the home search box
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [searchYear, setSearchYear] = useState('');
+  const [searchMake, setSearchMake] = useState('');
+  const [searchModel, setSearchModel] = useState('');
   
   // Contact Form State
   const [contactForm, setContactForm] = useState({
@@ -59,6 +64,16 @@ export default function Home() {
       } catch (e) { console.error('Error fetching categories:', e); }
     };
     fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const fetchVehicles = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'vehicles'));
+        setVehicles(snap.docs.map(d => d.data()));
+      } catch (e) { console.warn('vehicles unavailable:', e); }
+    };
+    fetchVehicles();
   }, []);
 
   useEffect(() => {
@@ -179,8 +194,15 @@ export default function Home() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchTerm.trim()) {
-      navigate(`/products?search=${encodeURIComponent(searchTerm)}`);
+    const params = new URLSearchParams();
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (searchYear) params.set('year', searchYear);
+    if (searchMake) params.set('make', searchMake);
+    if (searchModel) params.set('model', searchModel);
+    if (params.toString()) {
+      navigate(`/products?${params.toString()}`);
+    } else {
+      navigate('/products');
     }
   };
 
@@ -525,17 +547,57 @@ export default function Home() {
         <div className="md:col-span-2 md:row-span-1 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col">
           <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px] mb-1">{t('home.search_title')}</div>
           <h2 className="text-[18px] font-semibold uppercase tracking-[1px] text-[#E6F1FF] mb-3">{t('home.search_subtitle')}</h2>
-          <form onSubmit={handleSearch} className="relative flex items-center">
-            <input 
-              type="text" 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={t('home.search_placeholder')} 
-              className="bg-black/20 border border-[#FFB300]/20 p-3 pr-12 rounded-lg text-white text-sm w-full focus:outline-none focus:border-[#FFB300]/50" 
-            />
-            <button type="submit" className="absolute right-2 p-2 text-[#FFB300] hover:text-[#FFCA28] transition-colors">
-              <Search className="w-5 h-5" />
-            </button>
+          <form onSubmit={handleSearch} className="space-y-2">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={t('home.search_placeholder')}
+                className="bg-black/20 border border-[#FFB300]/20 p-3 pr-12 rounded-lg text-white text-sm w-full focus:outline-none focus:border-[#FFB300]/50"
+              />
+              <button type="submit" className="absolute right-2 p-2 text-[#FFB300] hover:text-[#FFCA28] transition-colors">
+                <Search className="w-5 h-5" />
+              </button>
+            </div>
+            {vehicles.length > 0 && (() => {
+              const yearOpts = [...new Set(vehicles.map(v => v.year != null ? String(v.year) : '').filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+              const makeOpts = [...new Set(vehicles.filter(v => !searchYear || String(v.year) === searchYear).map(v => v.make || '').filter(Boolean))].sort();
+              const modelOpts = [...new Set(vehicles.filter(v => (!searchYear || String(v.year) === searchYear) && (!searchMake || v.make === searchMake)).map(v => v.model || '').filter(Boolean))].sort();
+              return (
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value={searchYear}
+                    onChange={(e) => { setSearchYear(e.target.value); setSearchMake(''); setSearchModel(''); }}
+                    className="flex-1 min-w-[100px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                  >
+                    <option value="">{t('products.year', 'Year')}</option>
+                    {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select
+                    value={searchMake}
+                    onChange={(e) => { setSearchMake(e.target.value); setSearchModel(''); }}
+                    className="flex-1 min-w-[110px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                  >
+                    <option value="">{t('products.make', 'Make')}</option>
+                    {makeOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <select
+                    value={searchModel}
+                    onChange={(e) => setSearchModel(e.target.value)}
+                    className="flex-1 min-w-[110px] bg-black/20 border border-[#FFB300]/20 px-2 py-2 rounded-lg text-white text-xs focus:outline-none focus:border-[#FFB300]/50"
+                  >
+                    <option value="">{t('products.model', 'Model')}</option>
+                    {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  {(searchYear || searchMake || searchModel) && (
+                    <button type="button" onClick={() => { setSearchYear(''); setSearchMake(''); setSearchModel(''); }} className="text-[11px] text-[#FFB300] hover:underline px-2">
+                      {t('products.clear_filter', 'Clear')}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </form>
           <div className="mt-3 text-[11px] text-[#E6F1FF]/60 flex gap-2">
             <span>{t('home.search_trending')}</span>

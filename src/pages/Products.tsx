@@ -59,6 +59,12 @@ export default function Products() {
     if (searchParam) {
       setSearchTerm(searchParam);
     }
+    const yearParam = searchParams.get('year');
+    if (yearParam) setSelectedYear(yearParam);
+    const makeParam = searchParams.get('make');
+    if (makeParam) setSelectedMake(makeParam);
+    const modelParam = searchParams.get('model');
+    if (modelParam) setSelectedModel(modelParam);
   }, [searchParams]);
 
   // Debounced search event tracking (fires 800ms after the user stops typing)
