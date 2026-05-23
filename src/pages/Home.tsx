@@ -714,12 +714,14 @@ export default function Home() {
               <Link
                 key={i}
                 to={brand.categoryId ? `/products?category=${brand.categoryId}` : '/products'}
-                className="bg-[#112240] rounded-xl border border-white/5 p-5 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[120px] min-w-[120px] h-[120px]"
+                className="bg-[#112240] rounded-xl border border-white/5 p-3 flex flex-col items-center justify-center hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 w-[120px] min-w-[120px] h-[120px]"
               >
                 {brand.imageUrl ? (
-                  <img src={brand.imageUrl} alt={brand.label} className="w-14 h-14 object-contain mb-2 mix-blend-lighten" />
+                  <div className="w-16 h-16 bg-white rounded-lg flex items-center justify-center mb-2 p-1.5">
+                    <img src={brand.imageUrl} alt={brand.label} className="max-w-full max-h-full object-contain" />
+                  </div>
                 ) : (
-                  <div className="w-14 h-14 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
+                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
                 )}
                 <span className="text-xs font-medium text-[#E6F1FF] text-center truncate w-full">{brand.label}</span>
               </Link>
