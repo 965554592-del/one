@@ -5,6 +5,7 @@ import { db, auth } from '../firebase';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Filter, ArrowRight, FileText } from 'lucide-react';
 import SEO from '../components/SEO';
+import YMMSelect from '../components/YMMSelect';
 import { trackEvent } from '../lib/pixel';
 import { gtagEvent } from '../lib/gtag';
 
@@ -228,43 +229,45 @@ export default function Products() {
 
       {/* YMM (Year / Make / Model) cascading filter — only shows when product fitment data exists */}
       {yearOptions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <span className="text-xs uppercase tracking-wider text-[#8892B0]">{t('products.find_for_vehicle', 'Find parts for your vehicle')}</span>
-          <select
-            value={selectedYear}
-            onChange={(e) => { setSelectedYear(e.target.value); setSelectedMake(''); setSelectedModel(''); }}
-            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[120px]"
-          >
-            <option value="">{t('products.year', 'Year')}</option>
-            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select
-            value={selectedMake}
-            onChange={(e) => { setSelectedMake(e.target.value); setSelectedModel(''); }}
-            disabled={makeOptions.length === 0}
-            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[140px] disabled:opacity-50"
-          >
-            <option value="">{t('products.make', 'Make')}</option>
-            {makeOptions.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={modelOptions.length === 0}
-            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[140px] disabled:opacity-50"
-          >
-            <option value="">{t('products.model', 'Model')}</option>
-            {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          {(selectedYear || selectedMake || selectedModel) && (
-            <button
-              type="button"
-              onClick={resetYMM}
-              className="text-xs text-[#FFB300] hover:underline"
-            >
-              {t('products.clear_filter', 'Clear')}
-            </button>
-          )}
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-wider text-[#8892B0] mb-2">{t('products.find_for_vehicle', 'Find parts for your vehicle')}</div>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="w-full sm:w-[140px]">
+              <YMMSelect
+                value={selectedYear}
+                onChange={(v) => { setSelectedYear(v); setSelectedMake(''); setSelectedModel(''); }}
+                placeholder={t('products.year', 'Year')}
+                options={yearOptions}
+              />
+            </div>
+            <div className="w-full sm:w-[160px]">
+              <YMMSelect
+                value={selectedMake}
+                onChange={(v) => { setSelectedMake(v); setSelectedModel(''); }}
+                placeholder={t('products.make', 'Make')}
+                options={makeOptions}
+                disabled={makeOptions.length === 0}
+              />
+            </div>
+            <div className="w-full sm:w-[180px]">
+              <YMMSelect
+                value={selectedModel}
+                onChange={setSelectedModel}
+                placeholder={t('products.model', 'Model')}
+                options={modelOptions}
+                disabled={modelOptions.length === 0}
+              />
+            </div>
+            {(selectedYear || selectedMake || selectedModel) && (
+              <button
+                type="button"
+                onClick={resetYMM}
+                className="col-span-3 sm:col-auto text-xs text-[#FFB300] hover:underline text-left sm:text-center"
+              >
+                {t('products.clear_filter', 'Clear')}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
