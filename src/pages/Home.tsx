@@ -379,16 +379,16 @@ export default function Home() {
         ) : (
           <div className="w-full aspect-[16/9] bg-[#112240]"></div>
         )}
-        <div className={`absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/0 to-black/20' : 'from-[#0A192F]/15 to-[#0A192F]/45'}`}></div>
+        <div className={`hidden md:block absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/0 to-black/20' : 'from-[#0A192F]/15 to-[#0A192F]/45'}`}></div>
 
-        {/* Content - overlaid on top of image */}
-        <div className="absolute inset-0 z-10 flex flex-col justify-center items-center py-8 px-4 max-w-7xl mx-auto w-full overflow-y-auto" style={{ left: '50%', transform: 'translateX(-50%)' }}>
+        {/* Content - stacked below image on mobile, overlay on desktop */}
+        <div className="relative md:absolute md:inset-0 md:z-10 md:flex md:flex-col md:justify-center md:items-center py-8 md:py-12 px-4 max-w-7xl mx-auto w-full">
           {/* Key Indicators & Benefits Section */}
           <div className="w-full">
             {(!siteSettings?.featuresLayout || siteSettings.featuresLayout === 'classic') && (
               <>
                 {/* Key Indicators - Classic */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-16 w-full text-center items-center">
+                <div className="grid grid-cols-3 gap-4 md:gap-12 mb-8 md:mb-16 w-full text-center items-center">
                   {t('hero.partners') && (
                     <div>
                       <div className={getHeroStyle('hero.partners', 'text-2xl md:text-3xl font-extrabold text-[#FFB300] mb-3 tracking-tight')}>{t('hero.partners')}</div>
