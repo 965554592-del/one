@@ -1977,21 +1977,21 @@ function ProductsManager() {
                   placeholder={t('admin.search_sku_name', 'Search SKU / name / OEM...')}
                   value={filterText}
                   onChange={e => setFilterText(e.target.value)}
-                  className="flex-1 min-w-[200px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                  className="flex-1 min-w-[180px] max-w-[280px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
                 />
-                <select value={filterCategoryId} onChange={e => setFilterCategoryId(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                <select value={filterCategoryId} onChange={e => setFilterCategoryId(e.target.value)} className="w-[160px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
                   <option value="">{t('admin.all_categories', 'All Categories')}</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <select value={filterMake} onChange={e => { setFilterMake(e.target.value); setFilterModel(''); }} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                <select value={filterMake} onChange={e => { setFilterMake(e.target.value); setFilterModel(''); }} className="w-[130px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
                   <option value="">{t('admin.all_makes', 'All Makes')}</option>
                   {allMakes.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <select value={filterModel} onChange={e => setFilterModel(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                <select value={filterModel} onChange={e => setFilterModel(e.target.value)} className="w-[130px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
                   <option value="">{t('admin.all_models', 'All Models')}</option>
                   {allModels.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="w-[110px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
                   <option value="">{t('admin.all_years', 'All Years')}</option>
                   {allYears.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
