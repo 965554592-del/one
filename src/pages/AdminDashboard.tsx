@@ -1375,6 +1375,12 @@ function ProductsManager() {
   // Drag-and-drop reordering of product images
   const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // Filters for products table
+  const [filterText, setFilterText] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState('');
+  const [filterMake, setFilterMake] = useState('');
+  const [filterModel, setFilterModel] = useState('');
+  const [filterYear, setFilterYear] = useState('');
 
   /** Move imageUrls[from] -> imageUrls[to], shifting intermediate items. */
   const moveImage = (from: number, to: number) => {
@@ -1952,38 +1958,127 @@ function ProductsManager() {
       )}
       
       {loading ? <p className="text-[#8892B0]">{t('admin.loading')}</p> : (
-        <div className="overflow-x-auto">
-          <table className="w-full table-auto divide-y divide-white/10">
-            <thead className="bg-[#0A192F]">
-              <tr>
-                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[22%]">{t('admin.sku')}</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.name')}</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[18%]">{t('admin.category')}</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[10%]">{t('admin.price')}</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[80px]">{t('admin.actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="bg-[#112240] divide-y divide-white/5">
-              {products.map(product => (
-                <tr key={product.id}>
-                  <td className="px-3 py-3 text-sm font-medium text-[#E6F1FF] break-all">{product.sku}</td>
-                  <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.name}</td>
-                  <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.categoryName || '-'}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-sm text-[#8892B0]">${product.price}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <button onClick={() => handleEditClick(product)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
-                    <button onClick={() => handleDeleteProduct(product.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
-              {products.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_products_found')}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Filters Row */}
+          {(() => {
+            const allMakes = Array.from(new Set(products.flatMap((p: any) => (p.fitments || []).map((f: any) => f.make).filter(Boolean)))).sort();
+            const allModels = Array.from(new Set(products.flatMap((p: any) => (p.fitments || []).filter((f: any) => !filterMake || f.make === filterMake).map((f: any) => f.model).filter(Boolean)))).sort();
+            const allYears = Array.from(new Set(products.flatMap((p: any) => (p.fitments || []).map((f: any) => String(f.year)).filter(Boolean)))).sort((a, b) => Number(b) - Number(a));
+            const hasFilters = filterText || filterCategoryId || filterMake || filterModel || filterYear;
+            return (
+              <div className="mb-4 flex flex-wrap items-center gap-2 p-3 bg-[#0A192F] border border-white/5 rounded-lg">
+                <input
+                  type="text"
+                  placeholder={t('admin.search_sku_name', 'Search SKU / name / OEM...')}
+                  value={filterText}
+                  onChange={e => setFilterText(e.target.value)}
+                  className="flex-1 min-w-[200px] px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <select value={filterCategoryId} onChange={e => setFilterCategoryId(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                  <option value="">{t('admin.all_categories', 'All Categories')}</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <select value={filterMake} onChange={e => { setFilterMake(e.target.value); setFilterModel(''); }} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                  <option value="">{t('admin.all_makes', 'All Makes')}</option>
+                  {allMakes.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <select value={filterModel} onChange={e => setFilterModel(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                  <option value="">{t('admin.all_models', 'All Models')}</option>
+                  {allModels.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none">
+                  <option value="">{t('admin.all_years', 'All Years')}</option>
+                  {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                {hasFilters && (
+                  <button type="button" onClick={() => { setFilterText(''); setFilterCategoryId(''); setFilterMake(''); setFilterModel(''); setFilterYear(''); }} className="px-3 py-2 text-xs text-[#FFB300] hover:text-[#FFCA28] border border-[#FFB300]/30 rounded-md">
+                    {t('admin.clear_filters', 'Clear')}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+          {(() => {
+            const q = filterText.trim().toLowerCase();
+            const filtered = products.filter((p: any) => {
+              if (filterCategoryId && p.categoryId !== filterCategoryId) return false;
+              if (q) {
+                const hay = `${p.sku || ''} ${p.name || ''} ${p.oemNumber || ''}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+              }
+              if (filterMake || filterModel || filterYear) {
+                const fits: any[] = p.fitments || [];
+                const ok = fits.some((f: any) =>
+                  (!filterMake || f.make === filterMake) &&
+                  (!filterModel || f.model === filterModel) &&
+                  (!filterYear || String(f.year) === filterYear)
+                );
+                if (!ok) return false;
+              }
+              return true;
+            });
+            return (
+              <div className="overflow-x-auto">
+                <div className="mb-2 text-xs text-[#8892B0]">
+                  {t('admin.showing_count', 'Showing')} <span className="text-[#FFB300] font-semibold">{filtered.length}</span> / {products.length}
+                </div>
+                <table className="w-full table-auto divide-y divide-white/10">
+                  <thead className="bg-[#0A192F]">
+                    <tr>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[64px]">{t('admin.image', 'Image')}</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[18%]">{t('admin.sku')}</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider">{t('admin.name')}</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[14%]">{t('admin.category')}</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[18%]">{t('admin.fitment', 'YMM')}</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[10%]">{t('admin.price')}</th>
+                      <th className="px-3 py-3 text-right text-xs font-medium text-[#8892B0] uppercase tracking-wider w-[80px]">{t('admin.actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-[#112240] divide-y divide-white/5">
+                    {filtered.map(product => {
+                      const thumb = (product.imageUrls && product.imageUrls[0]) || product.imageUrl || '';
+                      const fits: any[] = product.fitments || [];
+                      return (
+                        <tr key={product.id}>
+                          <td className="px-3 py-2">
+                            {thumb ? (
+                              <img src={thumb} alt="" loading="lazy" className="w-12 h-12 object-cover rounded border border-white/10 bg-white" />
+                            ) : (
+                              <div className="w-12 h-12 rounded bg-white/5 flex items-center justify-center text-[#8892B0]"><ImageIcon className="w-4 h-4" /></div>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-medium text-[#E6F1FF] break-all">{product.sku}</td>
+                          <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.name}</td>
+                          <td className="px-3 py-3 text-sm text-[#8892B0] break-words">{product.categoryName || '-'}</td>
+                          <td className="px-3 py-3 text-xs text-[#8892B0]">
+                            {fits.length === 0 ? '-' : (
+                              <div className="flex flex-wrap gap-1">
+                                {fits.slice(0, 3).map((f: any, i: number) => (
+                                  <span key={i} className="px-1.5 py-0.5 bg-[#0A192F] rounded text-[10px]">{f.displayName || `${f.year} ${f.make} ${f.model}`}</span>
+                                ))}
+                                {fits.length > 3 && <span className="text-[10px] text-[#FFB300]">+{fits.length - 3}</span>}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap text-sm text-[#8892B0]">${product.price}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                            <button onClick={() => handleEditClick(product)} className="text-[#FFB300] hover:text-[#FFCA28]"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteProduct(product.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-sm text-[#8892B0]">{t('admin.no_products_found')}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </>
       )}
     </div>
   );
