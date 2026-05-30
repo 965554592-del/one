@@ -551,16 +551,21 @@ async function startServer() {
     const { title, content, embeds, author, metadata } = req.body;
 
     try {
-      // Dynamic import firebase-admin
-      const { initializeApp, getApps } = await import("firebase-admin/app");
-      const { getFirestore } = await import("firebase-admin/firestore");
+      // Use Firebase Client SDK which authenticates via API Key from firebase-applet-config.json
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, addDoc, doc, getDoc } = await import("firebase/firestore");
 
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
       if (getApps().length === 0) {
-        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
       }
 
-      const dbId = process.env.FIRESTORE_DB_ID || "ai-studio-3112dc56-9c5d-41d4-8544-f79c07c29140";
-      const fdb = getFirestore(dbId);
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
 
       // 1. Save the report to Firestore
       const reportData = {
@@ -571,11 +576,11 @@ async function startServer() {
         metadata: metadata || null,
         receivedAt: new Date().toISOString(),
       };
-      const reportRef = await fdb.collection("weeklyReports").add(reportData);
+      const reportRef = await addDoc(collection(fdb, "weeklyReports"), reportData);
       console.log(`[Webhook/WeeklyReport] Saved report ${reportRef.id} to Firestore.`);
 
       // 2. Fetch Discord settings
-      const settingsSnap = await fdb.doc("settings/global").get();
+      const settingsSnap = await getDoc(doc(fdb, "settings", "global"));
       const s = settingsSnap.data() || {};
       const { discordWebhookUrl, discordWebhookEnabled } = s;
 
