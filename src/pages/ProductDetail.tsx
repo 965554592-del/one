@@ -25,6 +25,7 @@ interface Product {
     compatibility?: string;
   };
   imageUrls?: string[];
+  imageUrl?: string;
   videoUrl?: string;
   catalogUrl?: string;
   oemNumber?: string;
@@ -226,7 +227,7 @@ export default function ProductDetail() {
     );
   }
 
-  const productImage = product?.imageUrls?.[0];
+  const productImage = product?.imageUrls?.[0] || product?.imageUrl;
   const productCategory = product?.categoryName || 'Auto Parts';
   const productJsonLd = product
     ? productWithFitmentSchema({
@@ -291,16 +292,16 @@ export default function ProductDetail() {
                   poster={product.imageUrls?.[0]}
                   onError={() => { console.warn('[ProductDetail] Video decode error, switching to image'); setActiveImage(0); }}
                 />
-              ) : product.imageUrls && product.imageUrls.length > 0 ? (
+              ) : (product.imageUrls && product.imageUrls.length > 0) || product.imageUrl ? (
                 <a
-                  href={product.imageUrls[activeImage === -1 ? 0 : activeImage]}
+                  href={product.imageUrls?.[activeImage === -1 ? 0 : activeImage] || product.imageUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="block w-full group relative"
                   title={t('products.view_original', 'Click to view original')}
                 >
                   <img
-                    src={product.imageUrls[activeImage === -1 ? 0 : activeImage]}
+                    src={product.imageUrls?.[activeImage === -1 ? 0 : activeImage] || product.imageUrl}
                     alt={product.name}
                     decoding="async"
                     className="w-full max-h-[70vh] object-contain"

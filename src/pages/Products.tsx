@@ -24,6 +24,7 @@ interface Product {
   categoryName: string;
   price: number;
   imageUrls?: string[];
+  imageUrl?: string;
   catalogUrl?: string;
   oemNumber?: string;
   techSpecs?: { compatibility?: string };
@@ -324,9 +325,9 @@ export default function Products() {
             <Link key={product.id} to={`/products/${product.id}`} className="group">
               <div className="bg-[#112240] rounded-xl shadow-sm border border-white/5 overflow-hidden hover:border-[#FFB300]/50 transition-colors">
                 <div className="bg-[#0A192F] flex items-center justify-center">
-                  {product.imageUrls && product.imageUrls.length > 0 ? (
+                  {(product.imageUrls && product.imageUrls.length > 0) || product.imageUrl ? (
                     <img 
-                      src={product.imageUrls[0]} 
+                      src={product.imageUrls?.[0] || product.imageUrl} 
                       alt={product.name} 
                       loading="lazy"
                       className="w-full h-48 object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
