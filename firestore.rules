@@ -295,5 +295,10 @@ service cloud.firestore {
     match /users/{userId}/favorites/{favId} {
       allow read, write: if isOwner(userId) || isAdmin();
     }
+
+    match /weeklyReports/{reportId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
   }
 }
