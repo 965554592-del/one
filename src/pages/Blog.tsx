@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Calendar, Clock, ArrowRight, BookOpen } from 'lucide-react';
@@ -22,7 +22,8 @@ export default function Blog() {
   const { t } = useTranslation();
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [searchParams] = useSearchParams();
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
 
   useEffect(() => {
     const fetchPosts = async () => {
@@ -39,7 +40,9 @@ export default function Blog() {
   }, []);
 
   const categories = [...new Set(posts.map(p => p.category).filter(Boolean))];
-  const filteredPosts = selectedCategory ? posts.filter(p => p.category === selectedCategory) : posts;
+  const filteredPosts = selectedCategory
+    ? posts.filter(p => p.category && p.category.toLowerCase().includes(selectedCategory.toLowerCase()))
+    : posts;
 
   const jsonLd = {
     '@context': 'https://schema.org',

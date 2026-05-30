@@ -1,20 +1,54 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import SEO from '../components/SEO';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/useStore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../firebase';
+
+// Keywords to map blog post categories → sourcing guide category IDs
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  sourcing:  ['sourcing', 'negotiation', 'moq', 'procurement', 'buying'],
+  quality:   ['quality', 'certification', 'iatf', 'iso', 'audit', 'testing', 'inspection'],
+  tech:      ['technology', 'technical', 'brake', 'headlight', 'bulb', 'suspension', 'product', 'lighting', 'roi'],
+  logistics: ['logistics', 'shipping', 'payment', 'fob', 'cif', 'freight', 'delivery'],
+  supplier:  ['supplier', 'factory', 'manufacturer', 'vendor', 'producer'],
+  trends:    ['trend', 'industry', 'market', 'ev', 'electric', 'compliance', 'news'],
+};
 
 const SourcingGuides: React.FC = () => {
   const { t } = useTranslation();
   const { siteSettings } = useStore();
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'blogPosts'), orderBy('publishedAt', 'desc')));
+        const counts: Record<string, number> = {};
+        snap.docs.forEach(d => {
+          const cat = ((d.data().category as string) || '').toLowerCase();
+          Object.entries(CATEGORY_KEYWORDS).forEach(([id, keywords]) => {
+            if (keywords.some(kw => cat.includes(kw))) {
+              counts[id] = (counts[id] || 0) + 1;
+            }
+          });
+        });
+        setPostCounts(counts);
+      } catch (e) {
+        console.error('[SourcingGuides] failed to fetch post counts', e);
+      }
+    };
+    fetchCounts();
+  }, []);
 
   const defaultCategories = [
-    { id: 'sourcing', title: t('sourcing_guides.cat_sourcing_title', 'Sourcing & Negotiation'), icon: '🤝', desc: t('sourcing_guides.cat_sourcing_desc', 'MOQ, pricing strategies, contracts, and more.'), articleCount: 0 },
-    { id: 'quality', title: t('sourcing_guides.cat_quality_title', 'Quality & Certifications'), icon: '✅', desc: t('sourcing_guides.cat_quality_desc', 'IATF 16949, ISO, factory audit, testing.'), articleCount: 0 },
-    { id: 'tech', title: t('sourcing_guides.cat_tech_title', 'Product Technology'), icon: '🔧', desc: t('sourcing_guides.cat_tech_desc', 'Brake pads, headlights, suspension – technical deep dives.'), articleCount: 0 },
-    { id: 'logistics', title: t('sourcing_guides.cat_logistics_title', 'Logistics & Payment'), icon: '🚢', desc: t('sourcing_guides.cat_logistics_desc', 'FOB, CIF, payment terms, shipping insurance.'), articleCount: 0 },
-    { id: 'supplier', title: t('sourcing_guides.cat_supplier_title', 'Supplier Management'), icon: '🏭', desc: t('sourcing_guides.cat_supplier_desc', 'How to vet Chinese factories, performance tracking.'), articleCount: 0 },
-    { id: 'trends', title: t('sourcing_guides.cat_trends_title', 'Industry Trends'), icon: '📈', desc: t('sourcing_guides.cat_trends_desc', 'EV parts, market shifts, compliance updates.'), articleCount: 0 },
+    { id: 'sourcing',  title: t('sourcing_guides.cat_sourcing_title',  'Sourcing & Negotiation'),  icon: '🤝', desc: t('sourcing_guides.cat_sourcing_desc',  'MOQ, pricing strategies, contracts, and more.'),              articleCount: postCounts['sourcing']  || 0 },
+    { id: 'quality',   title: t('sourcing_guides.cat_quality_title',   'Quality & Certifications'), icon: '✅', desc: t('sourcing_guides.cat_quality_desc',   'IATF 16949, ISO, factory audit, testing.'),                  articleCount: postCounts['quality']   || 0 },
+    { id: 'tech',      title: t('sourcing_guides.cat_tech_title',      'Product Technology'),       icon: '🔧', desc: t('sourcing_guides.cat_tech_desc',      'Brake pads, headlights, suspension – technical deep dives.'), articleCount: postCounts['tech']      || 0 },
+    { id: 'logistics', title: t('sourcing_guides.cat_logistics_title', 'Logistics & Payment'),      icon: '🚢', desc: t('sourcing_guides.cat_logistics_desc', 'FOB, CIF, payment terms, shipping insurance.'),              articleCount: postCounts['logistics'] || 0 },
+    { id: 'supplier',  title: t('sourcing_guides.cat_supplier_title',  'Supplier Management'),      icon: '🏭', desc: t('sourcing_guides.cat_supplier_desc',  'How to vet Chinese factories, performance tracking.'),       articleCount: postCounts['supplier']  || 0 },
+    { id: 'trends',    title: t('sourcing_guides.cat_trends_title',    'Industry Trends'),          icon: '📈', desc: t('sourcing_guides.cat_trends_desc',    'EV parts, market shifts, compliance updates.'),              articleCount: postCounts['trends']    || 0 },
   ];
 
   const defaultFeatured = {
@@ -78,7 +112,7 @@ const SourcingGuides: React.FC = () => {
                 {cat.articleCount} {t('sourcing_guides.articles_suffix', 'articles')}
               </span>
               <Link
-                to={`/sourcing-guides?category=${cat.id}`}
+                to={cat.articleCount > 0 ? `/blog?category=${cat.id}` : '/blog'}
                 className="text-[#FFB300] hover:underline text-sm font-medium"
               >
                 {t('sourcing_guides.browse', 'Browse →')}
