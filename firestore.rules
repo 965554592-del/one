@@ -300,5 +300,10 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isAdmin();
     }
+
+    match /publishLogs/{logId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
   }
 }

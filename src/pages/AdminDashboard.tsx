@@ -154,6 +154,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
     { id: 'sourcing-guides', label: t('admin.sourcing_guides', 'Sourcing Guides'), icon: FileText },
     { id: 'weekly-reports', label: t('admin.weekly_reports', 'Weekly Reports'), icon: Calendar },
+    { id: 'publish-logs', label: t('admin.publish_logs', 'Publishing Logs'), icon: Activity },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
     { id: 'translations', label: t('admin.translations'), icon: Edit },
@@ -227,6 +228,7 @@ export default function AdminDashboard() {
           {activeTab === 'blog' && <BlogManager />}
           {activeTab === 'sourcing-guides' && <SourcingGuidesManager />}
           {activeTab === 'weekly-reports' && <WeeklyReportsManager />}
+          {activeTab === 'publish-logs' && <PublishingLogsManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
         </div>
@@ -4900,6 +4902,159 @@ function WeeklyReportsManager() {
               <FileText className="w-16 h-16 text-[#8892B0]/20 mb-3 animate-pulse" />
               <h3 className="text-base font-semibold text-[#E6F1FF]">{t('admin.select_report_to_view', 'Select a report to view details')}</h3>
               <p className="text-sm mt-1 max-w-[300px]">Click any weekly report from the history list to view its full content, source metadata, and delivery status.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PublishingLogsManager() {
+  const { t } = useTranslation();
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedLog, setSelectedLog] = useState<any | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'publishLogs'), orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      console.error("Error loading publishing logs:", error);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(t('admin.confirm_delete_log', 'Are you sure you want to delete this log?'))) return;
+    try {
+      await deleteDoc(doc(db, 'publishLogs', id));
+      if (selectedLog?.id === id) {
+        setSelectedLog(null);
+      }
+    } catch (e: any) {
+      console.error("Error deleting log:", e);
+      alert(t('admin.delete_failed'));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.publishing_logs', 'Publishing Logs (推广日志)')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">
+            {t('admin.publishing_logs_desc', 'Track the automated distribution of generated blog posts and content across various channels.')}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Logs List */}
+        <div className="lg:col-span-1 bg-[#0A192F] border border-white/5 rounded-xl p-4 h-[600px] flex flex-col">
+          <h3 className="text-sm font-semibold text-[#FFB300] mb-3 uppercase tracking-wider">Publish History ({logs.length})</h3>
+
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+          ) : logs.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+              <Activity className="w-12 h-12 text-[#8892B0]/20 mb-2" />
+              <p className="text-sm text-[#8892B0]">No logs received yet.</p>
+              <p className="text-xs text-[#8892B0]/60 mt-1 max-w-[200px]">Configure your n8n workflow to POST to the publish-log webhook.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+              {logs.map((log) => (
+                <button
+                  key={log.id}
+                  onClick={() => setSelectedLog(log)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    selectedLog?.id === log.id
+                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-[#E6F1FF] truncate mb-1">{log.topic}</div>
+                  <div className="text-xs text-[#8892B0] mb-2">{log.timestamp ? new Date(log.timestamp).toLocaleString() : 'N/A'}</div>
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="bg-white/5 px-2 py-0.5 rounded-full text-[#8892B0]">Product: {log.product}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400">
+                      {log.channels} Channels
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Log Content View */}
+        <div className="lg:col-span-2 bg-[#0A192F] border border-white/5 rounded-xl p-6 h-[600px] flex flex-col overflow-hidden">
+          {selectedLog ? (
+            <div className="flex flex-col h-full overflow-hidden">
+              <div className="flex justify-between items-start border-b border-white/5 pb-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#E6F1FF]">{selectedLog.topic}</h3>
+                  <div className="flex items-center gap-3 text-xs text-[#8892B0] mt-2">
+                    <span>Published: {new Date(selectedLog.timestamp || selectedLog.loggedAt).toLocaleString()}</span>
+                    <span>•</span>
+                    <span>Product: {selectedLog.product}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDelete(selectedLog.id)}
+                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                    title="Delete Log"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4">
+                <div className="bg-[#112240]/50 border border-white/5 rounded-lg p-5 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Target Product</h4>
+                    <p className="text-sm text-[#E6F1FF]">{selectedLog.product}</p>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Status</h4>
+                    <span className="inline-block px-2.5 py-1 text-xs font-semibold rounded-full bg-green-500/10 text-green-400">
+                      {selectedLog.status?.toUpperCase() || 'PUBLISHED'}
+                    </span>
+                  </div>
+
+                  {selectedLog.url && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Live Article URL</h4>
+                      <a
+                        href={selectedLog.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-[#00F0FF] hover:underline break-all"
+                      >
+                        {selectedLog.url}
+                      </a>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Distribution Reach</h4>
+                    <p className="text-sm text-[#8892B0]">This article has been published or pushed to {selectedLog.channels || 1} content/social platforms simultaneously.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-[#8892B0]">
+              <Activity className="w-16 h-16 text-[#8892B0]/20 mb-3 animate-pulse" />
+              <h3 className="text-base font-semibold text-[#E6F1FF]">{t('admin.select_log_to_view', 'Select a log to view details')}</h3>        
+              <p className="text-sm mt-1 max-w-[300px]">Click any publish log from the history list to view distribution status, product target, and URLs.</p>
             </div>
           )}
         </div>

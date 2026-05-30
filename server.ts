@@ -661,6 +661,47 @@ async function startServer() {
     }
   });
 
+  // ─── Discord Publish Log Webhook Receiver ─────────────────
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/publish-log
+  app.post("/api/webhooks/publish-log", async (req, res) => {
+    const { topic, product, url, channels, status, timestamp } = req.body;
+
+    try {
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, addDoc } = await import("firebase/firestore");
+
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
+      if (getApps().length === 0) {
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
+      }
+
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+
+      const logData = {
+        topic: topic || "Unknown Topic",
+        product: product || "Unknown Product",
+        url: url || "",
+        channels: channels || 1,
+        status: status || "published",
+        timestamp: timestamp || new Date().toISOString(),
+        loggedAt: new Date().toISOString()
+      };
+
+      const logRef = await addDoc(collection(fdb, "publishLogs"), logData);
+      console.log(`[Webhook/PublishLog] Saved publish log ${logRef.id} to Firestore.`);
+
+      res.json({ success: true, savedInFirestore: true, logId: logRef.id });
+    } catch (err: any) {
+      console.error("[Webhook/PublishLog] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Comprehensive catch-all error handler for JSON responses
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[SERVER] Unhandled Error:", err);
