@@ -1,17 +1,52 @@
-# SPA fallback: serve index.html for any unknown path so react-router works
+# ── MIME types ──────────────────────────────────────────────
+AddType application/xml .xml
+AddType text/plain .txt
+
+# Force correct type for XML even if Nginx proxy overrides
+<Files "sitemap.xml">
+  ForceType application/xml
+</Files>
+<Files "sitemap_index.xml">
+  ForceType application/xml
+</Files>
+<Files "robots.txt">
+  ForceType text/plain
+</Files>
+
+# ── SPA fallback ───────────────────────────────────────────
+# serve index.html for any unknown path so react-router works
 # after a hard refresh on SiteGround / Apache.
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+
+  # Never rewrite SEO / static files
   RewriteRule ^index\.html$ - [L]
+  RewriteRule \.xml$ - [L]
+  RewriteRule ^robots\.txt$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
 </IfModule>
 
+# ── Caching ────────────────────────────────────────────────
 # Long-term cache for hashed Vite assets
 <IfModule mod_headers.c>
   <FilesMatch "\.(js|css|woff2?|ttf|eot|svg|png|jpe?g|gif|webp|ico)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
+
+# SEO files: force correct headers & bust proxy/CDN cache
+<IfModule mod_headers.c>
+  <FilesMatch "sitemap.*\.xml$">
+    Header always set Content-Type "application/xml; charset=utf-8"
+    Header always set Cache-Control "public, max-age=3600, must-revalidate"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always unset ETag
+  </FilesMatch>
+  <FilesMatch "robots\.txt$">
+    Header always set Content-Type "text/plain; charset=utf-8"
+    Header always set Cache-Control "public, max-age=3600, must-revalidate"
   </FilesMatch>
 </IfModule>

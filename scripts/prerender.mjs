@@ -16,31 +16,53 @@ import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import handler from 'serve-handler';
 import puppeteer from 'puppeteer';
+
+const require = createRequire(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const distDir = path.join(root, 'dist');
 
-const STATIC_ROUTES = ['/', '/products', '/about'];
+const STATIC_ROUTES = ['/', '/products', '/about', '/factory', '/blog', '/sourcing-guides'];
+const admin = require('firebase-admin');
+
+const DATABASE_ID = 'vida-prod';
+
+function getDb() {
+  const serviceAccount = require('./service-account.json');
+  if (!admin.apps.length) {
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  }
+  const { getFirestore } = require('firebase-admin/firestore');
+  return getFirestore(admin.app(), DATABASE_ID);
+}
 
 async function loadProductIds() {
-  // Lazy import to avoid bundling Firebase if unused.
   try {
-    const cfgRaw = await fs.readFile(path.join(root, 'firebase-applet-config.json'), 'utf8');
-    const cfg = JSON.parse(cfgRaw);
-    const { initializeApp } = await import('firebase/app');
-    const { getFirestore, collection, getDocs } = await import('firebase/firestore');
-    const app = initializeApp(cfg);
-    const db = cfg.firestoreDatabaseId
-      ? getFirestore(app, cfg.firestoreDatabaseId)
-      : getFirestore(app);
-    const snap = await getDocs(collection(db, 'products'));
-    return snap.docs.map((d) => d.id).slice(0, 100); // safety cap
+    const db = getDb();
+    const snap = await db.collection('products').get();
+    const ids = snap.docs.map((d) => d.id).slice(0, 100); // safety cap
+    console.log(`[prerender] Found ${snap.size} products, prerendering top ${ids.length}`);
+    return ids;
   } catch (err) {
     console.warn('[prerender] Skipping product detail pages:', err?.message || err);
+    return [];
+  }
+}
+
+async function loadBlogSlugs() {
+  try {
+    const db = getDb();
+    const snap = await db.collection('posts').where('published', '==', true).get();
+    const slugs = snap.docs.map((d) => d.data().slug || d.id);
+    console.log(`[prerender] Found ${slugs.length} published blog posts`);
+    return slugs;
+  } catch (err) {
+    console.warn('[prerender] Skipping blog post pages:', err?.message || err);
     return [];
   }
 }
@@ -220,8 +242,10 @@ async function main() {
   });
 
   const productIds = await loadProductIds();
+  const blogSlugs = await loadBlogSlugs();
   const productRoutes = productIds.map((id) => `/products/${id}`);
-  const allRoutes = [...STATIC_ROUTES, ...productRoutes];
+  const blogRoutes = blogSlugs.map((slug) => `/blog/${slug}`);
+  const allRoutes = [...STATIC_ROUTES, ...productRoutes, ...blogRoutes];
 
   console.log(`[prerender] ${allRoutes.length} route(s) to render`);
 

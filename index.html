@@ -5,22 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/favicon.png" />
+    <!-- Google tag (gtag.js) - GA4 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZLM8ZEY47L"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-ZLM8ZEY47L');
+    </script>
+    <!-- Preconnect to critical origins (saves ~640ms LCP) -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://gen-lang-client-0915949910.firebaseapp.com" />
+    <link rel="preconnect" href="https://www.googleapis.com" />
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
+    <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
+    <!-- Preload hero image: uses localStorage cache on repeat visits,
+         falls back to hardcoded URL for first-visit LCP optimization.
+         UPDATE the data-fallback URL when hero image changes in Admin. -->
+    <script>
+      (function(){
+        try {
+          var v = localStorage.getItem('heroVideoUrl');
+          var b = localStorage.getItem('heroBgUrl');
+          var url = v || b;
+          // Fallback: hardcoded current hero URL for first-time visitors.
+          // This eliminates the 6s resource-load-delay on first visit.
+          if (!url) url = document.querySelector('meta[name="hero-preload"]')?.content;
+          if (url) {
+            var l = document.createElement('link');
+            l.rel = 'preload';
+            l.as = v ? 'video' : 'image';
+            l.href = url;
+            l.fetchPriority = 'high';
+            l.crossOrigin = 'anonymous';
+            document.head.appendChild(l);
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <!-- Hero preload fallback for first-time visitors. Update this URL when changing hero in Admin. -->
+    <meta name="hero-preload" content="https://firebasestorage.googleapis.com/v0/b/gen-lang-client-0915949910.firebasestorage.app/o/site-settings%2F1748016154498-o8rplfp4.webp?alt=media" />
     <!-- Default head; per-page <Helmet> tags will override these at runtime / prerender time. -->
     <title>Vida Auto - Wholesale Auto Parts Supplier from China</title>
     <meta name="description" content="Vida Auto supplies high-quality OEM and aftermarket auto parts to global B2B buyers. Bulk wholesale, fast shipping, 12.5k+ SKUs across 45+ countries." />
     <meta name="robots" content="index,follow" />
-    <!-- Meta Pixel Code -->
+    <!-- Meta Pixel Code (deferred until after first paint to protect LCP) -->
     <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '2121066191770690');
-    fbq('track', 'PageView');
+    (function(){
+      function loadMetaPixel(){
+        if (window.fbq) return;
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', '2121066191770690');
+        fbq('track', 'PageView');
+      }
+      if (document.readyState === 'complete') {
+        setTimeout(loadMetaPixel, 1500);
+      } else {
+        window.addEventListener('load', function(){ setTimeout(loadMetaPixel, 1500); }, { once: true });
+      }
+    })();
     </script>
     <!-- End Meta Pixel Code -->
   </head>
@@ -30,16 +81,23 @@
     /></noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!--Start of Tawk.to Script-->
+    <!--Start of Tawk.to Script (deferred to protect LCP/TBT)-->
     <script type="text/javascript">
       var Tawk_API = Tawk_API || {}, Tawk_LoadStart = new Date();
       (function(){
-        var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
-        s1.async = true;
-        s1.src = 'https://embed.tawk.to/6a0bd6a08133091c33256b0f/1jov3spkd';
-        s1.charset = 'UTF-8';
-        s1.setAttribute('crossorigin', '*');
-        s0.parentNode.insertBefore(s1, s0);
+        function loadTawk(){
+          if (document.querySelector('script[src*="embed.tawk.to"]')) return;
+          var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
+          s1.async = true;
+          s1.src = 'https://embed.tawk.to/6a0bd6a08133091c33256b0f/1jov3spkd';
+          s1.charset = 'UTF-8';
+          s0.parentNode.insertBefore(s1, s0);
+        }
+        if (document.readyState === 'complete') {
+          setTimeout(loadTawk, 3000);
+        } else {
+          window.addEventListener('load', function(){ setTimeout(loadTawk, 3000); }, { once: true });
+        }
       })();
     </script>
     <!--End of Tawk.to Script-->

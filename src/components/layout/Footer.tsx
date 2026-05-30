@@ -121,17 +121,17 @@ export default function Footer() {
           <div className="flex flex-col items-center md:items-end">
             <span className="text-sm font-bold text-[#E6F1FF] uppercase tracking-wider mb-4">{t('footer.follow_us')}</span>
             <div className="flex space-x-4 mb-6">
-              <a href={siteSettings?.twitter || "#"} target="_blank" rel="noopener noreferrer" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
-                <Twitter className="w-5 h-5" />
+              <a href={siteSettings?.twitter || "#"} target="_blank" rel="noopener noreferrer" aria-label="Twitter" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
+                <Twitter className="w-5 h-5" aria-hidden="true" />
               </a>
-              <a href={siteSettings?.facebook || "#"} target="_blank" rel="noopener noreferrer" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
-                <Facebook className="w-5 h-5" />
+              <a href={siteSettings?.facebook || "#"} target="_blank" rel="noopener noreferrer" aria-label="Facebook" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
+                <Facebook className="w-5 h-5" aria-hidden="true" />
               </a>
-              <a href={siteSettings?.instagram || "#"} target="_blank" rel="noopener noreferrer" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
-                <Instagram className="w-5 h-5" />
+              <a href={siteSettings?.instagram || "#"} target="_blank" rel="noopener noreferrer" aria-label="Instagram" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
+                <Instagram className="w-5 h-5" aria-hidden="true" />
               </a>
-              <a href={siteSettings?.linkedin || "#"} target="_blank" rel="noopener noreferrer" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
-                <Linkedin className="w-5 h-5" />
+              <a href={siteSettings?.linkedin || "#"} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" className="text-[#8892B0] hover:text-[#FFB300] transition-colors">
+                <Linkedin className="w-5 h-5" aria-hidden="true" />
               </a>
             </div>
             
@@ -147,6 +147,10 @@ export default function Footer() {
 
         <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center text-xs">
           <div className="flex items-center space-x-4 mb-4 md:mb-0">
+            <Link to="/products" className="hover:text-[#FFB300] transition-colors">{t('nav.products')}</Link>
+            <Link to="/blog" className="hover:text-[#FFB300] transition-colors">{t('nav.blog', 'Blog')}</Link>
+            <Link to="/sourcing-guides" className="hover:text-[#FFB300] transition-colors">{t('nav.resources', 'Resources')}</Link>
+            <Link to="/about" className="hover:text-[#FFB300] transition-colors">{t('nav.about')}</Link>
             <Link to="/privacy" className="hover:text-[#FFB300] transition-colors">{t('common.privacy')}</Link>
             <Link to="/terms" className="hover:text-[#FFB300] transition-colors">{t('common.terms')}</Link>
           </div>

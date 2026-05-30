@@ -189,7 +189,7 @@ service cloud.firestore {
     function isValidQualification(data) {
       return hasRequiredFields(['title', 'category', 'fileUrl', 'fileName', 'createdAt']) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 256 &&
-             data.category is string && data.category in ['ISO Certification', 'CE Certification', 'Patents', 'Awards', 'Lighting System', 'Braking System', 'Filters', 'Exterior Parts', 'Others'] &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 100 &&
              data.fileUrl is string && data.fileUrl.size() > 0 && data.fileUrl.size() < 1048576 &&
              data.fileName is string && data.fileName.size() > 0 && data.fileName.size() < 256 &&
              isValidDateString(data.createdAt);

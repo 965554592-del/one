@@ -14,7 +14,9 @@
     "start": "cross-env NODE_ENV=production node dist-server/server.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist dist-server",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "backfill:webp": "node scripts/backfill-webp.mjs",
+    "backfill:webp:apply": "node scripts/backfill-webp.mjs --apply"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -64,7 +66,9 @@
     "firebase-admin": "^13.10.0",
     "puppeteer": "^25.0.4",
     "serve-handler": "^6.1.7",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.1.14",
+    "terser": "^5.48.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",

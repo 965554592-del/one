@@ -39,8 +39,8 @@ export default function ProfileGateModal({ onComplete, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
       <div className="bg-[#112240] rounded-2xl border border-white/10 shadow-2xl w-full max-w-md p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-[#8892B0] hover:text-white transition-colors">
-          <X className="w-5 h-5" />
+        <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 text-[#8892B0] hover:text-white transition-colors">
+          <X className="w-5 h-5" aria-hidden="true" />
         </button>
 
         <h3 className="text-lg font-bold text-[#E6F1FF] mb-1">

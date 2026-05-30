@@ -89,9 +89,10 @@ export default function IdleInquiryPopup() {
       <div className="bg-[#112240] rounded-2xl border border-white/10 shadow-2xl w-full max-w-md p-6 relative">
         <button
           onClick={dismiss}
+          aria-label="Close"
           className="absolute top-4 right-4 text-[#8892B0] hover:text-white transition-colors"
         >
-          <X className="w-5 h-5" />
+          <X className="w-5 h-5" aria-hidden="true" />
         </button>
 
         {submitted ? (

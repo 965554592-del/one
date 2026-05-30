@@ -58,4 +58,4 @@ Disallow: /admin
 Disallow: /debug
 Disallow: /user
 
-Sitemap: https://autoparts.fit/sitemap.xml
+Sitemap: https://autoparts.fit/sitemap_index.xml

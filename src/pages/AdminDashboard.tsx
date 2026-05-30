@@ -8,6 +8,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Package, MapPin, MessageSquare, Plus, Trash2, X, Settings, FileText, Activity, RefreshCw, Edit, ShieldCheck, FileDown, Layers, Video, Image as ImageIcon, Share2, Mail, CheckCircle, Phone, Send, ClipboardList, Calendar } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { uploadFileToStorage, deleteFileFromStorage } from '../lib/storage';
+import { compressImage, compressImageToSize } from '../lib/imageCompress';
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // Firebase Storage allows much more; keep a sane UX cap.
 
@@ -49,6 +50,19 @@ async function isHevcVideo(file: File): Promise<boolean> {
  * resilient even before Storage rules are configured.
  */
 async function uploadFile(file: File, folder = 'uploads'): Promise<string> {
+  // Auto-compress + convert images to WebP browser-side before upload.
+  // Drastically reduces bandwidth (typically 60-85% smaller) without any
+  // server processing. Skipped for SVGs and non-image files.
+  if (file.type.startsWith('image/') && !file.type.includes('svg')) {
+    const beforeKB = (file.size / 1024).toFixed(1);
+    const compressed = await compressImage(file);
+    if (compressed !== file) {
+      const afterKB = (compressed.size / 1024).toFixed(1);
+      const ratio = ((1 - compressed.size / file.size) * 100).toFixed(0);
+      console.log(`[upload] compressed ${file.name}: ${beforeKB}KB -> ${afterKB}KB (-${ratio}%)`);
+      file = compressed;
+    }
+  }
   // Auto-transcode H.265 / HEVC videos to H.264 on the server so browsers
   // can play them. The transcoded file is returned and then uploaded to
   // Firebase Storage via the normal client SDK path.
@@ -138,6 +152,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'brand-logos', label: t('admin.brand_logos', 'Brand Logos'), icon: Layers },
     { id: 'about-sections', label: t('admin.about_sections', 'About Sections'), icon: FileText },
     { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
+    { id: 'sourcing-guides', label: t('admin.sourcing_guides', 'Sourcing Guides'), icon: FileText },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
     { id: 'translations', label: t('admin.translations'), icon: Edit },
@@ -209,6 +224,7 @@ export default function AdminDashboard() {
           {activeTab === 'brand-logos' && <BrandLogosManager />}
           {activeTab === 'about-sections' && <AboutSectionsManager />}
           {activeTab === 'blog' && <BlogManager />}
+          {activeTab === 'sourcing-guides' && <SourcingGuidesManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
         </div>
@@ -474,8 +490,50 @@ function BlogManager() {
               <input type="text" value={newPost.readTime} onChange={e => setNewPost({...newPost, readTime: e.target.value})} placeholder="5 min" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-[#8892B0] mb-1">Cover Image URL</label>
-              <input type="text" value={newPost.coverImage} onChange={e => setNewPost({...newPost, coverImage: e.target.value})} placeholder="https://..." className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">Cover Image</label>
+              <div className="flex gap-2 items-start">
+                <input
+                  type="text"
+                  value={newPost.coverImage}
+                  onChange={e => setNewPost({ ...newPost, coverImage: e.target.value })}
+                  placeholder="https://..."
+                  className="flex-1 min-w-0 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0 text-sm">
+                  <Plus className="w-4 h-4 mr-1" />
+                  {t('admin.select_file', 'Upload')}
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        if (newPost.coverImage) await deleteFileFromServer(newPost.coverImage);
+                        const url = await uploadFile(file, 'blog-covers');
+                        setNewPost(prev => ({ ...prev, coverImage: url }));
+                      } catch (err: any) {
+                        alert(`${t('admin.upload_failed', 'Upload failed')}: ${err?.message || ''}`);
+                      } finally {
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              {newPost.coverImage && (
+                <div className="mt-2 relative inline-block">
+                  <img src={newPost.coverImage} alt="cover" className="max-h-40 rounded border border-white/5" />
+                  <button
+                    type="button"
+                    onClick={async () => { await deleteFileFromServer(newPost.coverImage); setNewPost(prev => ({ ...prev, coverImage: '' })); }}
+                    className="absolute top-1 right-1 bg-[#0A192F]/80 text-red-400 hover:text-red-300 text-xs px-2 py-0.5 rounded"
+                  >
+                    {t('admin.delete', 'Delete')}
+                  </button>
+                </div>
+              )}
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-[#8892B0] mb-1">Excerpt (short summary)</label>
@@ -918,6 +976,179 @@ function AboutSectionsManager() {
             </div>
           </div>
         ))}
+      </div>
+
+      {isSaving && (
+        <div className="fixed bottom-8 right-8 bg-[#FFB300] text-[#0A192F] px-4 py-2 rounded-full shadow-2xl flex items-center animate-bounce">
+          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          {t('admin.saving')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SourcingGuidesManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [categories, setCategories] = useState<any[]>(siteSettings?.sourcingCategories || []);
+  const [featured, setFeatured] = useState<any>(siteSettings?.sourcingFeatured || { title: '', description: '', readTime: '', comingSoon: true, slug: '' });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newCat, setNewCat] = useState({ title: '', icon: '📦', desc: '' });
+
+  useEffect(() => {
+    if (siteSettings?.sourcingCategories) setCategories(siteSettings.sourcingCategories);
+    if (siteSettings?.sourcingFeatured) setFeatured(siteSettings.sourcingFeatured);
+  }, [siteSettings]);
+
+  const persist = async (updatedCats: any[], updatedFeatured: any) => {
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'global'), { sourcingCategories: updatedCats, sourcingFeatured: updatedFeatured }, { merge: true });
+      setSiteSettings({ ...siteSettings, sourcingCategories: updatedCats, sourcingFeatured: updatedFeatured });
+    } catch (e: any) {
+      console.error('Save sourcing guides failed:', e);
+      alert(t('admin.save_failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddCategory = () => {
+    if (!newCat.title) { alert(t('admin.fill_all_fields')); return; }
+    const cat = { id: `sg-${Date.now()}`, ...newCat, articleCount: 0 };
+    const updated = [...categories, cat];
+    setCategories(updated);
+    persist(updated, featured);
+    setNewCat({ title: '', icon: '📦', desc: '' });
+    setIsAdding(false);
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    if (!confirm(t('admin.confirm_delete', 'Are you sure?'))) return;
+    const updated = categories.filter(c => c.id !== id);
+    setCategories(updated);
+    persist(updated, featured);
+  };
+
+  const handleUpdateCategory = (id: string, patch: any) => {
+    const updated = categories.map(c => c.id === id ? { ...c, ...patch } : c);
+    setCategories(updated);
+    persist(updated, featured);
+  };
+
+  const handleSaveFeatured = () => {
+    persist(categories, featured);
+  };
+
+  const iconOptions = ['🤝', '✅', '🔧', '🚢', '🏭', '📈', '📦', '💡', '🔍', '🛡️', '⚙️', '🌍'];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.sourcing_guides', 'Sourcing Guides')}</h2>
+        <p className="text-sm text-[#8892B0] mt-1">{t('admin.sourcing_guides_desc', 'Manage categories and featured guide shown on the Resources page.')}</p>
+      </div>
+
+      {/* Categories Section */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-[#E6F1FF]">{t('admin.guide_categories', 'Guide Categories')}</h3>
+          <button onClick={() => setIsAdding(true)} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />{t('admin.add', 'Add')}
+          </button>
+        </div>
+
+        {isAdding && (
+          <div className="bg-[#0A192F] border border-white/5 rounded-xl p-5 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">Icon</label>
+                <select value={newCat.icon} onChange={e => setNewCat({ ...newCat, icon: e.target.value })} className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md">
+                  {iconOptions.map(ic => <option key={ic} value={ic}>{ic}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.title', 'Title')}</label>
+                <input type="text" value={newCat.title} onChange={e => setNewCat({ ...newCat, title: e.target.value })} placeholder="e.g. Sourcing & Negotiation" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+              </div>
+              <div>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.description', 'Description')}</label>
+                <input type="text" value={newCat.desc} onChange={e => setNewCat({ ...newCat, desc: e.target.value })} placeholder="Short description" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleAddCategory} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]">{t('admin.save', 'Save')}</button>
+              <button onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 text-[#8892B0] rounded-md text-sm hover:bg-white/5">{t('admin.cancel', 'Cancel')}</button>
+            </div>
+          </div>
+        )}
+
+        {categories.length === 0 && !isAdding && (
+          <div className="text-center py-8 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl">
+            No categories yet. Click "Add" to create one.
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {categories.map(cat => (
+            <div key={cat.id} className="bg-[#0A192F] border border-white/5 rounded-lg p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <span className="text-2xl">{cat.icon}</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[#E6F1FF] truncate">{cat.title}</div>
+                  <div className="text-xs text-[#8892B0] truncate">{cat.desc}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="number"
+                  value={cat.articleCount || 0}
+                  onChange={e => handleUpdateCategory(cat.id, { articleCount: parseInt(e.target.value) || 0 })}
+                  className="w-16 px-2 py-1 bg-[#112240] border border-white/10 text-white text-xs rounded text-center"
+                  title="Article count"
+                  min="0"
+                />
+                <button onClick={() => handleDeleteCategory(cat.id)} className="text-red-400 hover:text-red-300 p-1">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Featured Guide Section */}
+      <div className="space-y-4 border-t border-white/5 pt-6">
+        <h3 className="text-lg font-semibold text-[#E6F1FF]">{t('admin.featured_guide', 'Featured Guide')}</h3>
+        <div className="bg-[#0A192F] border border-white/5 rounded-xl p-5 space-y-3">
+          <div>
+            <label className="block text-xs text-[#8892B0] mb-1">{t('admin.title', 'Title')}</label>
+            <input type="text" value={featured.title} onChange={e => setFeatured({ ...featured, title: e.target.value })} placeholder="Guide title" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+          </div>
+          <div>
+            <label className="block text-xs text-[#8892B0] mb-1">{t('admin.description', 'Description')}</label>
+            <textarea value={featured.description} onChange={e => setFeatured({ ...featured, description: e.target.value })} rows={3} placeholder="Brief description of the guide" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">Read Time</label>
+              <input type="text" value={featured.readTime} onChange={e => setFeatured({ ...featured, readTime: e.target.value })} placeholder="10 min read" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#8892B0] mb-1">Slug (URL)</label>
+              <input type="text" value={featured.slug || ''} onChange={e => setFeatured({ ...featured, slug: e.target.value })} placeholder="moq-guide" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={featured.comingSoon} onChange={e => setFeatured({ ...featured, comingSoon: e.target.checked })} className="rounded border-white/20 bg-[#112240] text-[#FFB300] focus:ring-[#FFB300]" />
+                <span className="text-sm text-[#8892B0]">Coming Soon</span>
+              </label>
+            </div>
+          </div>
+          <button onClick={handleSaveFeatured} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]">{t('admin.save', 'Save')}</button>
+        </div>
       </div>
 
       {isSaving && (
@@ -3240,6 +3471,7 @@ function SettingsManager() {
       setGlobeBottomSubtitle(siteSettings.globeBottomSubtitle || '');
       setCatalogUrl(siteSettings.catalogUrl || '');
       setCatalogTitle(siteSettings.catalogTitle || '');
+      setCatalogs(Array.isArray(siteSettings.catalogs) ? siteSettings.catalogs : []);
       setFacebook(siteSettings.facebook || '');
       setTwitter(siteSettings.twitter || '');
       setInstagram(siteSettings.instagram || '');
@@ -3256,6 +3488,8 @@ function SettingsManager() {
       setCrmWebhookUrl(siteSettings.crmWebhookUrl || '');
       setCrmWebhookHeaders(siteSettings.crmWebhookHeaders || '');
       setCrmWebhookEnabled(siteSettings.crmWebhookEnabled ?? false);
+      setDiscordWebhookUrl(siteSettings.discordWebhookUrl || '');
+      setDiscordWebhookEnabled(siteSettings.discordWebhookEnabled ?? false);
       setEmailProvider(siteSettings.emailProvider || 'resend');
       setResendApiKey(siteSettings.resendApiKey || '');
       setSmtpHost(siteSettings.smtpHost || '');
@@ -3284,6 +3518,10 @@ function SettingsManager() {
   const [crmWebhookUrl, setCrmWebhookUrl] = useState(siteSettings?.crmWebhookUrl || '');
   const [crmWebhookHeaders, setCrmWebhookHeaders] = useState(siteSettings?.crmWebhookHeaders || '');
   const [crmWebhookEnabled, setCrmWebhookEnabled] = useState(siteSettings?.crmWebhookEnabled ?? false);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState(siteSettings?.discordWebhookUrl || '');
+  const [discordWebhookEnabled, setDiscordWebhookEnabled] = useState(siteSettings?.discordWebhookEnabled ?? false);
+  const [discordTesting, setDiscordTesting] = useState(false);
+  const [discordTestResult, setDiscordTestResult] = useState<'success' | 'fail' | null>(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
   const [webhookTestResult, setWebhookTestResult] = useState<'success' | 'fail' | null>(null);
   const [metaPixelId, setMetaPixelId] = useState(siteSettings?.metaPixelId || '');
@@ -3304,6 +3542,7 @@ function SettingsManager() {
   const [factoryBgUrl, setFactoryBgUrl] = useState(siteSettings?.factoryBgUrl || '');
   const [heroVideoUrl, setHeroVideoUrl] = useState(siteSettings?.heroVideoUrl || '');
   const [heroBgUrl, setHeroBgUrl] = useState(siteSettings?.heroBgUrl || '');
+  const [heroBgUrlMobile, setHeroBgUrlMobile] = useState(siteSettings?.heroBgUrlMobile || '');
   const [address, setAddress] = useState(siteSettings?.address || '');
   const [phone, setPhone] = useState(siteSettings?.phone || '');
   const [email, setEmail] = useState(siteSettings?.email || '');
@@ -3317,6 +3556,7 @@ function SettingsManager() {
   const [globeBottomSubtitle, setGlobeBottomSubtitle] = useState(siteSettings?.globeBottomSubtitle || '');
   const [catalogUrl, setCatalogUrl] = useState(siteSettings?.catalogUrl || '');
   const [catalogTitle, setCatalogTitle] = useState(siteSettings?.catalogTitle || '');
+  const [catalogs, setCatalogs] = useState<{ id: string; title: string; fileUrl: string }[]>(siteSettings?.catalogs || []);
   const [facebook, setFacebook] = useState(siteSettings?.facebook || '');
   const [twitter, setTwitter] = useState(siteSettings?.twitter || '');
   const [instagram, setInstagram] = useState(siteSettings?.instagram || '');
@@ -3355,16 +3595,47 @@ function SettingsManager() {
     }
   };
 
+  // Special handler for hero background: also generates a 768px mobile variant.
+  const handleHeroBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`${t('admin.image_too_large')} (${(file.size / 1024 / 1024).toFixed(2)}MB)。${t('admin.content_too_large')}`);
+      return;
+    }
+    try {
+      console.log(`[upload] Hero image: ${file.name}`);
+      // Upload desktop version
+      const url = await uploadFile(file, 'site-settings');
+      if (heroBgUrl) await deleteFileFromServer(heroBgUrl);
+      setHeroBgUrl(url);
+
+      // Generate + upload 768px mobile variant
+      const mobileFile = await compressImageToSize(file, 768, 0.80);
+      if (mobileFile) {
+        const mobileUrl = await uploadFile(mobileFile, 'site-settings');
+        if (heroBgUrlMobile) await deleteFileFromServer(heroBgUrlMobile);
+        setHeroBgUrlMobile(mobileUrl);
+        console.log(`[upload] Mobile variant: ${(mobileFile.size / 1024).toFixed(1)}KB -> ${mobileUrl}`);
+      }
+
+      alert(`✅ ${t('admin.upload_success', 'Upload successful')}: ${file.name}`);
+    } catch (error: any) {
+      console.error('Hero upload error:', error);
+      alert(`❌ ${t('admin.upload_failed', 'Upload failed')}: ${error.message}`);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
       const newSettings = { 
         ...siteSettings,
-        logoUrl, statsBgUrl, statsVideoUrl, statsOverlayText, storyVideoUrl, storyBgUrl, factoryVideoUrl, factoryBgUrl, heroVideoUrl, heroBgUrl, address, phone, email, whatsappQrUrl, whatsappLink,
+        logoUrl, statsBgUrl, statsVideoUrl, statsOverlayText, storyVideoUrl, storyBgUrl, factoryVideoUrl, factoryBgUrl, heroVideoUrl, heroBgUrl, heroBgUrlMobile, address, phone, email, whatsappQrUrl, whatsappLink,
         starProductId, starProductTitle,
         globeTitle, globeSubtitle, globeBottomTitle, globeBottomSubtitle,
-        catalogUrl, catalogTitle,
+        catalogUrl, catalogTitle, catalogs,
         facebook, twitter, instagram, linkedin,
         featuresLayout,
         statsRegions,
@@ -3380,6 +3651,8 @@ function SettingsManager() {
         crmWebhookUrl: crmWebhookUrl || '',
         crmWebhookHeaders: crmWebhookHeaders || '',
         crmWebhookEnabled,
+        discordWebhookUrl: discordWebhookUrl || '',
+        discordWebhookEnabled,
         emailProvider,
         resendApiKey: resendApiKey || '',
         smtpHost: smtpHost || '',
@@ -3523,6 +3796,96 @@ function SettingsManager() {
                   {catalogUrl && (
                     <button type="button" onClick={() => { deleteFileFromServer(catalogUrl); setCatalogUrl(''); }} className="mt-1 text-xs text-red-500 hover:underline">{t('admin.delete')}</button>
                   )}
+                </div>
+              </div>
+
+              {/* Additional catalogs (multiple PDFs e.g. Bulbs, Headlights) */}
+              <div className="mt-6 pt-4 border-t border-white/5">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-[#E6F1FF]">{t('admin.extra_catalogs', 'Additional Catalogs')}</label>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogs([...catalogs, { id: `cat-${Date.now()}`, title: '', fileUrl: '' }])}
+                    className="flex items-center px-3 py-1.5 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-xs font-medium transition-colors"
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> {t('admin.add', 'Add')}
+                  </button>
+                </div>
+                <p className="text-xs text-[#8892B0] mb-3">{t('admin.extra_catalogs_hint', 'Each item appears as a download card on the homepage. Title is shown to users.')}</p>
+                {catalogs.length === 0 && (
+                  <p className="text-xs text-[#8892B0] italic">{t('admin.no_extra_catalogs', 'No additional catalogs yet.')}</p>
+                )}
+                <div className="space-y-3">
+                  {catalogs.map((c, idx) => (
+                    <div key={c.id} className="bg-[#0A192F] border border-white/5 rounded-md p-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                      <div>
+                        <label className="block text-xs text-[#8892B0] mb-1">{t('admin.catalog_title_label', 'Display Title')}</label>
+                        <input
+                          type="text"
+                          value={c.title}
+                          onChange={e => {
+                            const next = [...catalogs];
+                            next[idx] = { ...c, title: e.target.value };
+                            setCatalogs(next);
+                          }}
+                          placeholder="Bulbs / Headlights / ..."
+                          className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[#8892B0] mb-1">{t('admin.catalog_file', 'Catalog File (PDF)')}</label>
+                        <div className="flex gap-2 items-start">
+                          <input
+                            type="text"
+                            value={c.fileUrl}
+                            onChange={e => {
+                              const next = [...catalogs];
+                              next[idx] = { ...c, fileUrl: e.target.value };
+                              setCatalogs(next);
+                            }}
+                            placeholder="https://..."
+                            className="flex-1 min-w-0 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm"
+                          />
+                          <label className="cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0 text-xs">
+                            <Plus className="w-3 h-3 mr-1" />
+                            {t('admin.select_file', 'Upload')}
+                            <input
+                              type="file"
+                              className="sr-only"
+                              accept="application/pdf"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  if (c.fileUrl) await deleteFileFromServer(c.fileUrl);
+                                  const url = await uploadFile(file, 'catalogs');
+                                  const next = [...catalogs];
+                                  next[idx] = { ...c, fileUrl: url };
+                                  setCatalogs(next);
+                                } catch (err: any) {
+                                  alert(`${t('admin.upload_failed', 'Upload failed')}: ${err?.message || ''}`);
+                                } finally {
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!confirm(t('admin.confirm_delete', 'Are you sure?'))) return;
+                              if (c.fileUrl) await deleteFileFromServer(c.fileUrl);
+                              setCatalogs(catalogs.filter((_, i) => i !== idx));
+                            }}
+                            className="px-2 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors shrink-0"
+                            title={t('admin.delete', 'Delete')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -3860,6 +4223,64 @@ function SettingsManager() {
           </div>
         </div>
 
+        {/* Discord Weekly Report Webhook Integration */}
+        <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
+          <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
+            <MessageSquare className="w-5 h-5 mr-2" /> {t('admin.discord_integration', 'Discord Webhook Integration (Weekly Report)')}
+          </h3>
+          <p className="text-xs text-[#8892B0]">
+            {t('admin.discord_desc', '推送周报到 Discord。在你的 Discord 频道中创建一个 Webhook，获取 Webhook URL 填入下方，即可获得订阅周报。')}
+          </p>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={discordWebhookEnabled} onChange={e => setDiscordWebhookEnabled(e.target.checked)} className="sr-only peer" />
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+              <span className={`text-sm font-medium ${discordWebhookEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
+                {discordWebhookEnabled ? t('admin.discord_enabled', 'Discord Weekly Report Push Enabled') : t('admin.discord_disabled', 'Discord Weekly Report Push Disabled')}
+              </span>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('admin.discord_webhook_url', 'Discord Webhook URL')}</label>
+              <input type="text" value={discordWebhookUrl} onChange={e => setDiscordWebhookUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/1234567890/abcde_ABCDE-12345" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-sm" />
+              <p className="mt-1 text-xs text-[#8892B0]">
+                {t('admin.discord_webhook_hint', 'Enter the full Discord Webhook URL to receive weekly newsletters/reports.')}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={!discordWebhookUrl || discordTesting}
+                onClick={async () => {
+                  setDiscordTesting(true);
+                  setDiscordTestResult(null);
+                  try {
+                    const res = await fetch(discordWebhookUrl, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        content: "🔔 **Vida Auto - Discord Weekly Report Webhook Integration Test**\nYour weekly report integration is successfully connected! 🎉\nTime: " + new Date().toLocaleString()
+                      }),
+                    });
+                    setDiscordTestResult(res.ok ? 'success' : 'fail');
+                  } catch {
+                    setDiscordTestResult('fail');
+                  } finally {
+                    setDiscordTesting(false);
+                  }
+                }}
+                className="px-4 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {discordTesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {t('admin.discord_test', 'Send Test Discord Notification')}
+              </button>
+              {discordTestResult === 'success' && <span className="text-green-400 text-sm flex items-center gap-1"><CheckCircle className="w-4 h-4" /> {t('admin.discord_test_ok', 'Success! Message pushed to Discord.')}</span>}
+              {discordTestResult === 'fail' && <span className="text-red-400 text-sm">{t('admin.discord_test_fail', 'Failed. Check Webhook URL and connection.')}</span>}
+            </div>
+          </div>
+        </div>
+
         {/* Social Links */}
         <div className="bg-[#0A192F] p-6 rounded-lg border border-white/5 space-y-4">
           <h3 className="text-lg font-bold text-[#FFB300] mb-4 flex items-center">
@@ -4002,7 +4423,7 @@ function SettingsManager() {
                           <span className="text-xs text-[#8892B0] group-hover:text-[#FFB300]">{t('admin.upload_image')}</span>
                         </div>
                       )}
-                      <input type="file" className="sr-only" accept="image/*" onChange={e => handleFileUpload(e, setHeroBgUrl, heroBgUrl)} />
+                      <input type="file" className="sr-only" accept="image/*" onChange={handleHeroBgUpload} />
                     </label>
                   </div>
                 </div>
@@ -4456,6 +4877,7 @@ function SystemHealthManager() {
 function QualificationsManager() {
   const { t } = useTranslation();
   const [qualifications, setQualifications] = useState<any[]>([]);
+  const [productCategories, setProductCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [newQual, setNewQual] = useState({
@@ -4465,7 +4887,10 @@ function QualificationsManager() {
     fileName: ''
   });
 
-  const categories = ['ISO Certification', 'CE Certification', 'Patents', 'Awards', 'Lighting System', 'Braking System', 'Filters', 'Exterior Parts', 'Others'];
+  // Certification-type categories are fixed (not product categories)
+  const certificationCategories = ['ISO Certification', 'CE Certification', 'Patents', 'Awards'];
+  // Product categories are pulled live from Firestore so they stay in sync
+  const categories = [...certificationCategories, ...productCategories, 'Others'];
 
   const fetchQualifications = async () => {
     setLoading(true);
@@ -4480,8 +4905,23 @@ function QualificationsManager() {
     }
   };
 
+  const fetchProductCategories = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'categories'));
+      const data = snap.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
+        .map((c: any) => c.name)
+        .filter(Boolean);
+      setProductCategories(data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'categories');
+    }
+  };
+
   useEffect(() => {
     fetchQualifications();
+    fetchProductCategories();
   }, []);
 
   const [isUploading, setIsUploading] = useState(false);

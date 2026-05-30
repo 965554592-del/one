@@ -1,10 +1,14 @@
 /* eslint-disable no-console */
 // Generates dist/sitemap.xml and dist/robots.txt after the build.
-// Pulls product IDs from Firestore using the public web SDK config.
+// Pulls product IDs from Firestore using the Admin SDK (HTTPS REST, GFW-friendly).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const admin = require('firebase-admin');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +16,7 @@ const root = path.resolve(__dirname, '..');
 const distDir = path.join(root, 'dist');
 
 const SITE_URL = 'https://autoparts.fit';
+const DATABASE_ID = 'vida-prod';
 
 // Static routes: [path, changefreq, priority]
 const STATIC_ROUTES = [
@@ -20,31 +25,39 @@ const STATIC_ROUTES = [
   ['/about', 'monthly', 0.6],
   ['/factory', 'monthly', 0.7],
   ['/blog', 'weekly', 0.7],
+  ['/sourcing-guides', 'weekly', 0.7],
   ['/ship-to', 'monthly', 0.5],
 ];
 
-/** Initialise Firestore (web SDK) from the project config. */
-async function getDb() {
-  const cfgRaw = await fs.readFile(path.join(root, 'firebase-applet-config.json'), 'utf8');
-  const cfg = JSON.parse(cfgRaw);
-  const { initializeApp } = await import('firebase/app');
-  const { getFirestore } = await import('firebase/firestore');
-  const app = initializeApp(cfg);
-  return cfg.firestoreDatabaseId
-    ? getFirestore(app, cfg.firestoreDatabaseId)
-    : getFirestore(app);
+/** Initialise Firestore via Admin SDK (uses service-account.json). */
+function getDb() {
+  const serviceAccount = require('./service-account.json');
+  if (!admin.apps.length) {
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  }
+  // Use the named database 'vida-prod' (not the default)
+  const { getFirestore } = require('firebase-admin/firestore');
+  return getFirestore(admin.app(), DATABASE_ID);
+}
+
+/** Format Firestore Timestamp to YYYY-MM-DD string. */
+function toDateStr(val) {
+  if (!val) return undefined;
+  if (typeof val === 'string') return val.slice(0, 10) || undefined;
+  if (val.toDate) return val.toDate().toISOString().slice(0, 10);
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  return undefined;
 }
 
 async function loadDynamicRoutes(db) {
-  const { collection, getDocs, query, where } = await import('firebase/firestore');
   const routes = [];
 
   // Product detail pages
   try {
-    const snap = await getDocs(collection(db, 'products'));
+    const snap = await db.collection('products').get();
     snap.forEach((d) => {
       const data = d.data();
-      const lastmod = (data.updatedAt || data.createdAt || '').slice(0, 10) || undefined;
+      const lastmod = toDateStr(data.updatedAt) || toDateStr(data.createdAt);
       routes.push({ path: `/products/${d.id}`, changefreq: 'weekly', priority: 0.8, lastmod });
     });
     console.log(`  Products: ${snap.size}`);
@@ -54,11 +67,11 @@ async function loadDynamicRoutes(db) {
 
   // Published blog posts
   try {
-    const snap = await getDocs(query(collection(db, 'posts'), where('published', '==', true)));
+    const snap = await db.collection('posts').where('published', '==', true).get();
     snap.forEach((d) => {
       const data = d.data();
       const slug = data.slug || d.id;
-      const lastmod = (data.updatedAt || data.createdAt || '').slice(0, 10) || undefined;
+      const lastmod = toDateStr(data.updatedAt) || toDateStr(data.createdAt);
       routes.push({ path: `/blog/${slug}`, changefreq: 'monthly', priority: 0.6, lastmod });
     });
     console.log(`  Blog posts: ${snap.size}`);
@@ -68,7 +81,7 @@ async function loadDynamicRoutes(db) {
 
   // Ship-to region pages
   try {
-    const snap = await getDocs(collection(db, 'salesRegions'));
+    const snap = await db.collection('salesRegions').get();
     snap.forEach((d) => {
       const name = d.data().name || '';
       const slug = name.toLowerCase().replace(/\s+/g, '-');
@@ -126,6 +139,21 @@ async function main() {
   await fs.mkdir(distDir, { recursive: true });
   await fs.writeFile(path.join(distDir, 'sitemap.xml'), xml, 'utf8');
   console.log(`[sitemap] ✓ wrote ${allEntries.length} URLs to dist/sitemap.xml`);
+
+  // sitemap_index.xml — GSC prefers a sitemap index
+  const today = new Date().toISOString().slice(0, 10);
+  const sitemapIndex = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    '  <sitemap>',
+    `    <loc>${SITE_URL}/sitemap.xml</loc>`,
+    `    <lastmod>${today}</lastmod>`,
+    '  </sitemap>',
+    '</sitemapindex>',
+    '',
+  ].join('\n');
+  await fs.writeFile(path.join(distDir, 'sitemap_index.xml'), sitemapIndex, 'utf8');
+  console.log('[sitemap] ✓ wrote dist/sitemap_index.xml');
 
   // robots.txt — per Google guidelines + AI crawler strategy
   const robots = [
@@ -189,7 +217,7 @@ async function main() {
     'Disallow: /debug',
     'Disallow: /user',
     '',
-    `Sitemap: ${SITE_URL}/sitemap.xml`,
+    `Sitemap: ${SITE_URL}/sitemap_index.xml`,
     '',
   ].join('\n');
   await fs.writeFile(path.join(distDir, 'robots.txt'), robots, 'utf8');

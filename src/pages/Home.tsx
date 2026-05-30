@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { lazy, Suspense, useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Search, CheckCircle, Send, Lightbulb, Disc, Filter, Car, LayoutGrid, ArrowRight, ShieldCheck, FileText, Download } from 'lucide-react';
 import YMMSelect from '../components/YMMSelect';
 
@@ -10,15 +9,81 @@ import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { addDoc, collection, doc, getDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import SEO from '../components/SEO';
 import LazyVideo from '../components/LazyVideo';
-import { trackLead, trackEvent } from '../lib/pixel';
-import { gtagTrackLead, gtagEvent } from '../lib/gtag';
-import { pushToCRM } from '../lib/webhook';
-import { buildSmtp, sendAdminNotification, sendCustomerAutoReply } from '../lib/email';
-import { sendCapiLead, generateEventId } from '../lib/capi';
+// pixel & gtag tracking utilities are dynamically imported at event time to reduce initial bundle.
+// webhook, email, capi are dynamically imported at form-submit time to reduce initial bundle size.
 import { GlobeErrorBoundary } from '../components/GlobeErrorBoundary';
-import ProfileGateModal from '../components/ProfileGateModal';
+const ProfileGateModal = lazy(() => import('../components/ProfileGateModal'));
 
-const Globe = lazy(() => import('../components/Globe'));
+/** Loads the 3D Globe only when scrolled into viewport (saves 1.1MB Three.js on initial load) */
+function GlobeSection({ siteSettings, t }: { siteSettings: any; t: any }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [skip3D, setSkip3D] = useState(false);
+  const [GlobeComp, setGlobeComp] = useState<React.ComponentType | null>(null);
+
+  useEffect(() => {
+    // Skip heavy 3D Globe on mobile, slow connections, save-data, or reduced-motion.
+    // Lighthouse Moto G test = 412px wide; skip Globe for all mobile to eliminate TBT.
+    const isMobile = window.innerWidth < 768;
+    const conn = (navigator as any).connection;
+    const slow = conn && (conn.saveData || /2g|slow/.test(conn.effectiveType || ''));
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (isMobile || slow || reduced) {
+      setSkip3D(true);
+      return;
+    }
+
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // Defer to idle time so Three.js parsing doesn't block first interaction.
+          const trigger = () => setVisible(true);
+          if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(trigger, { timeout: 2000 });
+          } else {
+            setTimeout(trigger, 1500);
+          }
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '0px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Truly conditional import: only loads Three.js (268KB) when visible AND not skipped.
+  useEffect(() => {
+    if (!visible || skip3D) return;
+    import('../components/Globe').then(mod => setGlobeComp(() => mod.default));
+  }, [visible, skip3D]);
+
+  return (
+    <div ref={ref} className="md:col-span-2 md:row-span-2 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col relative overflow-hidden" style={{ background: 'radial-gradient(circle at 50% 50%, #1d3557 0%, #0A192F 100%)' }}>
+      <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px] mb-1 z-10">{siteSettings?.globeTitle || t('home.globe_title')}</div>
+      <h2 className="text-[18px] font-semibold uppercase tracking-[1px] text-[#E6F1FF] mb-3 z-10">{siteSettings?.globeSubtitle || t('home.globe_subtitle')}</h2>
+      <div className="absolute inset-0 top-16">
+        {skip3D ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-32 h-32 md:w-48 md:h-48 rounded-full border-2 border-[#FFB300]/30 bg-gradient-to-br from-[#1d3557] to-[#0A192F] shadow-[inset_0_0_60px_rgba(255,179,0,0.2)]" />
+          </div>
+        ) : GlobeComp ? (
+          <GlobeErrorBoundary>
+            <GlobeComp />
+          </GlobeErrorBoundary>
+        ) : (
+          <div className="flex items-center justify-center h-full text-[#8892B0]">{t('home.globe_loading')}</div>
+        )}
+      </div>
+      <div className="absolute bottom-5 left-5 z-10 pointer-events-none">
+        <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px]">{siteSettings?.globeBottomTitle || t('home.current_region')}</div>
+        <div className="text-[18px] text-[#E6F1FF]">{siteSettings?.globeBottomSubtitle || t('home.global_network')}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const { t } = useTranslation();
@@ -109,12 +174,14 @@ export default function Home() {
     fetchStarProduct();
   }, [siteSettings?.starProductId]);
 
+  const extraCatalogs = (siteSettings?.catalogs || []).filter((c: any) => c?.fileUrl);
   const documents = [
     ...(siteSettings?.catalogUrl ? [{ id: 'doc-full', title: siteSettings?.catalogTitle || t('home.catalog_2026', 'Product Catalog 2026'), type: 'PDF', size: 'Full', url: siteSettings?.catalogUrl }] : []),
+    ...extraCatalogs.map((c: any) => ({ id: `cat-extra-${c.id}`, title: c.title || 'Catalog', type: 'PDF', size: 'PDF', url: c.fileUrl })),
     ...homeCategories
       .filter((c: any) => c.catalogUrl)
       .map((c: any) => ({ id: `cat-${c.id}`, title: c.name, type: 'PDF', size: c.name, url: c.catalogUrl })),
-    ...(!siteSettings?.catalogUrl && homeCategories.filter((c: any) => c.catalogUrl).length === 0
+    ...(!siteSettings?.catalogUrl && extraCatalogs.length === 0 && homeCategories.filter((c: any) => c.catalogUrl).length === 0
       ? [{ id: 'doc-default', title: t('home.catalog_2026', 'Product Catalog 2026'), type: 'PDF', size: 'Full', url: '' }]
       : []),
   ];
@@ -162,31 +229,33 @@ export default function Home() {
       });
 
       // Track PDF download event (Meta Pixel + GA4)
-      trackEvent('Download', {
+      import('../lib/pixel').then(({ trackEvent }) => trackEvent('Download', {
         content_name: docData.title || docId,
         content_category: 'home_catalog',
-      });
-      gtagEvent('file_download', {
+      })).catch(() => {});
+      import('../lib/gtag').then(({ gtagEvent }) => gtagEvent('file_download', {
         file_name: docData.title || docId,
-      });
+      })).catch(() => {});
 
       // Push download event to CRM with user profile info
       if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
         const profile = userDoc.data() || {};
-        pushToCRM(
-          {
-            name: profile.displayName || auth.currentUser.displayName || '',
-            email: auth.currentUser.email || '',
-            phone: profile.phone || '',
-            company: profile.company || '',
-            country: profile.country || '',
-            message: `Downloaded: ${docData.title || docId}`,
-            source: 'pdf_download',
-            createdAt: now,
-          },
-          siteSettings.crmWebhookUrl,
-          siteSettings.crmWebhookHeaders,
+        import('../lib/webhook').then(({ pushToCRM }) =>
+          pushToCRM(
+            {
+              name: profile.displayName || auth.currentUser!.displayName || '',
+              email: auth.currentUser!.email || '',
+              phone: profile.phone || '',
+              company: profile.company || '',
+              country: profile.country || '',
+              message: `Downloaded: ${docData.title || docId}`,
+              source: 'pdf_download',
+              createdAt: now,
+            },
+            siteSettings.crmWebhookUrl,
+            siteSettings.crmWebhookHeaders,
+          )
         ).catch(() => {});
       }
 
@@ -240,15 +309,17 @@ export default function Home() {
         ...(user ? { userId: user.uid, userEmail: user.email } : {}),
       });
       // Shared event ID for pixel + CAPI deduplication
+      const { generateEventId } = await import('../lib/capi');
       const leadEventId = generateEventId();
-      trackLead({
+      import('../lib/pixel').then(({ trackLead }) => trackLead({
         content_name: 'Home Inquiry Form',
         content_category: contactForm.partNeed || 'general',
         company: contactForm.company,
         eventID: leadEventId,
-      });
+      })).catch(() => {});
       // Server-side CAPI (fire-and-forget)
       if (siteSettings?.metaPixelId && siteSettings?.fbCapiAccessToken) {
+        const { sendCapiLead } = await import('../lib/capi');
         sendCapiLead(
           siteSettings.metaPixelId,
           siteSettings.fbCapiAccessToken,
@@ -259,29 +330,33 @@ export default function Home() {
         );
       }
       // Google Analytics 4 + Google Ads conversion tracking
-      gtagTrackLead({
+      import('../lib/gtag').then(({ gtagTrackLead }) => gtagTrackLead({
         content_name: 'Home Inquiry Form',
         content_category: contactForm.partNeed || 'general',
         company: contactForm.company,
-      });
+      })).catch(() => {});
       // Fire-and-forget CRM webhook push (never blocks UI).
       if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
-        pushToCRM(
-          { ...contactForm, source: 'home_inquiry_form', createdAt: new Date().toISOString() },
-          siteSettings.crmWebhookUrl,
-          siteSettings.crmWebhookHeaders,
+        import('../lib/webhook').then(({ pushToCRM }) =>
+          pushToCRM(
+            { ...contactForm, source: 'home_inquiry_form', createdAt: new Date().toISOString() },
+            siteSettings.crmWebhookUrl,
+            siteSettings.crmWebhookHeaders,
+          )
         ).catch(() => {/* logged inside pushToCRM */});
       }
       // Fire-and-forget email notifications.
-      const smtp = buildSmtp(siteSettings || {});
-      if (smtp) {
-        if (siteSettings?.emailNotifyEnabled && siteSettings?.notifyEmails) {
-          sendAdminNotification(smtp, siteSettings.notifyEmails, contactForm).catch(() => {});
+      import('../lib/email').then(({ buildSmtp, sendAdminNotification, sendCustomerAutoReply }) => {
+        const smtp = buildSmtp(siteSettings || {});
+        if (smtp) {
+          if (siteSettings?.emailNotifyEnabled && siteSettings?.notifyEmails) {
+            sendAdminNotification(smtp, siteSettings.notifyEmails, contactForm).catch(() => {});
+          }
+          if (siteSettings?.emailAutoReplyEnabled && contactForm.email) {
+            sendCustomerAutoReply(smtp, contactForm.email, contactForm.name).catch(() => {});
+          }
         }
-        if (siteSettings?.emailAutoReplyEnabled && contactForm.email) {
-          sendCustomerAutoReply(smtp, contactForm.email, contactForm.name).catch(() => {});
-        }
-      }
+      }).catch(() => {});
       setIsSubmitted(true);
       setContactForm({
         name: '',
@@ -325,7 +400,7 @@ export default function Home() {
   const BenefitCard = ({ titleKey, descKey, modern }: { titleKey: string, descKey: string, modern?: boolean }) => {
     if (!t(titleKey)) return null;
     return (
-      <div className={`${modern ? 'bg-white/5 border-white/5' : 'bg-black/20 border-white/10'} backdrop-blur-[2px] border p-6 rounded-xl text-center hover:border-[#FFB300]/50 hover:bg-black/40 transition-all hover:-translate-y-1 duration-300`}>
+      <div className={`${modern ? 'bg-white/5 border-white/5' : 'bg-black/10 border-white/10'} backdrop-blur-[2px] border p-6 rounded-xl text-center hover:border-[#FFB300]/50 hover:bg-black/30 transition-all hover:-translate-y-1 duration-300`}>
         <h4 className={getHeroStyle(titleKey, 'text-lg font-bold text-[#E6F1FF] mb-2')}>{t(titleKey)}</h4>
         <p className="text-sm text-[#8892B0] leading-relaxed">{t(descKey)}</p>
       </div>
@@ -335,10 +410,12 @@ export default function Home() {
   return (
     <div className="flex-1 flex flex-col w-full">
       {showProfileGate && (
-        <ProfileGateModal
-          onComplete={handleProfileGateComplete}
-          onClose={() => { setShowProfileGate(false); setPendingDownloadId(null); }}
-        />
+        <Suspense fallback={null}>
+          <ProfileGateModal
+            onComplete={handleProfileGateComplete}
+            onClose={() => { setShowProfileGate(false); setPendingDownloadId(null); }}
+          />
+        </Suspense>
       )}
       <SEO
         title="Vida Auto - Wholesale Auto Parts Supplier from China"
@@ -362,24 +439,40 @@ export default function Home() {
       />
       {/* HERO SECTION - FULL WIDTH */}
       <div className="relative w-full overflow-hidden mb-8 bg-[#0A192F]">
-        {/* Background Video/Image - displayed at natural aspect ratio */}
-        {siteSettings?.heroVideoUrl ? (
-          <LazyVideo
-            src={siteSettings.heroVideoUrl}
-            poster={siteSettings.heroBgUrl}
-            className="block w-full h-auto"
-            lazy={false}
-            preload="metadata"
-          />
-        ) : siteSettings?.heroBgUrl ? (
-          <img
-            src={siteSettings.heroBgUrl}
-            alt=""
-            className="block w-full h-auto"
-          />
-        ) : (
-          <div className="w-full aspect-[16/9] bg-[#112240]"></div>
-        )}
+        {/* Background Video/Image - aspect ratio reserved to prevent CLS */}
+        <div className="relative w-full aspect-[16/9]">
+          {siteSettings?.heroVideoUrl ? (
+            <LazyVideo
+              src={siteSettings.heroVideoUrl}
+              poster={siteSettings.heroBgUrl}
+              className="absolute inset-0 w-full h-full object-cover"
+              lazy={false}
+              preload="metadata"
+            />
+          ) : siteSettings?.heroBgUrl ? (
+            <picture>
+              {siteSettings.heroBgUrlMobile && (
+                <source
+                  media="(max-width: 768px)"
+                  srcSet={siteSettings.heroBgUrlMobile}
+                  type="image/webp"
+                />
+              )}
+              <img
+                src={siteSettings.heroBgUrl}
+                alt=""
+                width="1440"
+                height="810"
+                sizes="100vw"
+                fetchPriority="high"
+                decoding="async"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            </picture>
+          ) : (
+            <div className="absolute inset-0 bg-[#112240]"></div>
+          )}
+        </div>
         <div className={`hidden md:block absolute inset-0 bg-gradient-to-b pointer-events-none ${siteSettings?.heroVideoUrl ? 'from-black/0 to-black/20' : 'from-[#0A192F]/15 to-[#0A192F]/45'}`}></div>
 
         {/* Content - stacked below image on mobile, overlay on desktop */}
@@ -478,22 +571,8 @@ export default function Home() {
 
       <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full flex flex-col flex-1">
         <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-3 gap-4 auto-rows-[minmax(200px,auto)] flex-1">
-        {/* 3D GLOBE AREA */}
-        <div className="md:col-span-2 md:row-span-2 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col relative overflow-hidden" style={{ background: 'radial-gradient(circle at 50% 50%, #1d3557 0%, #0A192F 100%)' }}>
-          <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px] mb-1 z-10">{siteSettings?.globeTitle || t('home.globe_title')}</div>
-          <h2 className="text-[18px] font-semibold uppercase tracking-[1px] text-[#E6F1FF] mb-3 z-10">{siteSettings?.globeSubtitle || t('home.globe_subtitle')}</h2>
-          <div className="absolute inset-0 top-16">
-            <GlobeErrorBoundary>
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-[#8892B0]">{t('home.globe_loading')}</div>}>
-                <Globe />
-              </Suspense>
-            </GlobeErrorBoundary>
-          </div>
-          <div className="absolute bottom-5 left-5 z-10 pointer-events-none">
-            <div className="text-[11px] text-[#8892B0] uppercase tracking-[1px]">{siteSettings?.globeBottomTitle || t('home.current_region')}</div>
-            <div className="text-[18px] text-[#E6F1FF]">{siteSettings?.globeBottomSubtitle || t('home.global_network')}</div>
-          </div>
-        </div>
+        {/* 3D GLOBE AREA — only loads Three.js (1.1MB) when scrolled into view */}
+        <GlobeSection siteSettings={siteSettings} t={t} />
 
         {/* PRODUCT FEATURE */}
         <Link to={starProduct ? `/products/${starProduct.id}` : "/products"} className="md:col-span-1 md:row-span-1 bg-[#112240] rounded-2xl border border-white/5 p-5 flex flex-col group hover:border-[#FFB300]/50 transition-colors">
@@ -506,7 +585,10 @@ export default function Home() {
           <img 
             src={starProduct?.imageUrls?.[0] || "https://picsum.photos/seed/nanabuana-part/400/300"} 
             alt={starProduct?.name || "Featured Product"} 
-            loading="lazy" 
+            loading="lazy"
+            width="400"
+            height="300"
+            decoding="async"
             className="flex-1 min-h-[100px] mt-2 rounded-lg object-contain w-full bg-[#0A192F] p-2 group-hover:scale-[1.03] transition-transform duration-300" 
             referrerPolicy="no-referrer" 
           />
@@ -547,7 +629,10 @@ export default function Home() {
             <img 
               src={siteSettings?.statsBgUrl || "https://picsum.photos/seed/nanabuana-factory/800/400"} 
               alt="Factory" 
-              loading="lazy" 
+              loading="lazy"
+              width="800"
+              height="400"
+              decoding="async"
               className="absolute inset-0 w-full h-full object-cover opacity-40" 
               referrerPolicy="no-referrer" 
             />
@@ -572,8 +657,8 @@ export default function Home() {
                 placeholder={t('home.search_placeholder')}
                 className="bg-black/20 border border-[#FFB300]/20 p-3 pr-12 rounded-lg text-white text-sm w-full focus:outline-none focus:border-[#FFB300]/50"
               />
-              <button type="submit" className="absolute right-2 p-2 text-[#FFB300] hover:text-[#FFCA28] transition-colors">
-                <Search className="w-5 h-5" />
+              <button type="submit" aria-label={t('home.search_placeholder')} className="absolute right-2 p-2 text-[#FFB300] hover:text-[#FFCA28] transition-colors">
+                <Search className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
             {vehicles.length > 0 && (() => {
@@ -634,7 +719,11 @@ export default function Home() {
                     <div className="flex flex-col items-center gap-1 group/cert">
                       <img 
                         src={cert.imageUrl} 
-                        alt={cert.title} 
+                        alt={cert.title}
+                        width="40"
+                        height="40"
+                        loading="lazy"
+                        decoding="async"
                         className="w-10 h-10 object-contain transition-transform group-hover/cert:scale-110" 
                         referrerPolicy="no-referrer"
                       />
@@ -659,7 +748,7 @@ export default function Home() {
 
         {/* WHATSAPP CTA */}
         <div className="md:col-span-1 md:row-span-1 bg-[#FFB300] rounded-2xl border border-white/5 p-5 flex flex-col">
-          <div className="text-[11px] text-[#0A192F]/60 uppercase tracking-[1px] mb-1">{t('home.order_title')}</div>
+          <div className="text-[11px] text-[#0A192F]/80 uppercase tracking-[1px] mb-1">{t('home.order_title')}</div>
           <h2 className="text-[18px] font-semibold uppercase tracking-[1px] text-[#0A192F] mb-2">{t('home.order_subtitle')}</h2>
           <p className="text-[12px] text-[#0A192F]/80 mb-4">{t('home.order_desc')}</p>
           <button onClick={handleWhatsAppInquiry} className="mt-auto bg-[#0A192F] text-white p-3 text-center rounded-lg font-semibold text-sm hover:bg-[#112240] transition-colors">{t('home.whatsapp_btn')}</button>
@@ -802,7 +891,7 @@ export default function Home() {
               >
                 {brand.imageUrl ? (
                   <div className="w-16 h-16 bg-white rounded-lg flex items-center justify-center mb-2 p-1.5">
-                    <img src={brand.imageUrl} alt={brand.label} className="max-w-full max-h-full object-contain" />
+                    <img src={brand.imageUrl} alt="" width="64" height="64" loading="lazy" decoding="async" className="max-w-full max-h-full object-contain" />
                   </div>
                 ) : (
                   <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-2 text-2xl font-bold text-[#FFB300]">{brand.label?.[0]}</div>
@@ -812,9 +901,10 @@ export default function Home() {
             ))}
             <Link
               to="/products"
+              aria-label={t('home.view_all_brands', 'View all brands and products')}
               className="bg-[#FFB300]/10 rounded-xl border border-[#FFB300]/20 p-5 flex flex-col items-center justify-center hover:bg-[#FFB300]/20 transition-colors w-[120px] min-w-[120px] h-[120px]"
             >
-              <ArrowRight className="w-8 h-8 text-[#FFB300] mb-2" />
+              <ArrowRight className="w-8 h-8 text-[#FFB300] mb-2" aria-hidden="true" />
               <span className="text-xs font-medium text-[#FFB300]">{t('home.more_brands', 'More')}</span>
             </Link>
           </div>
@@ -843,7 +933,7 @@ export default function Home() {
                 className={`w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center transition-colors ${
                   isLoggedIn 
                     ? 'bg-[#FFB300]/10 text-[#FFB300] hover:bg-[#FFB300]/20' 
-                    : 'bg-white/5 text-[#8892B0] hover:bg-white/10 hover:text-white'
+                    : 'bg-white/10 text-[#CBD5E1] hover:bg-white/20 hover:text-white'
                 }`}
               >
                 {downloadingId === doc.id ? (

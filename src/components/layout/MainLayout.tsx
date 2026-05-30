@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import Navbar from './Navbar';
-import Footer from './Footer';
-import WhatsAppAssistant from '../WhatsAppAssistant';
-import IdleInquiryPopup from '../IdleInquiryPopup';
+
+const Footer = lazy(() => import('./Footer'));
+
+const WhatsAppAssistant = lazy(() => import('../WhatsAppAssistant'));
+const IdleInquiryPopup = lazy(() => import('../IdleInquiryPopup'));
 
 export default function MainLayout() {
   return (
@@ -11,9 +14,13 @@ export default function MainLayout() {
       <main className="flex-grow">
         <Outlet />
       </main>
-      <Footer />
-      <WhatsAppAssistant />
-      <IdleInquiryPopup />
+      <Suspense fallback={<div className="h-64 bg-[#060D19]" />}>
+        <Footer />
+      </Suspense>
+      <Suspense fallback={null}>
+        <WhatsAppAssistant />
+        <IdleInquiryPopup />
+      </Suspense>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/useStore';
 import { Globe, Menu, X, User as UserIcon } from 'lucide-react';
 import { useState } from 'react';
+import { loadLanguage } from '../../i18n';
 
 const languages = [
   { code: 'en', name: 'English' },
@@ -20,7 +21,8 @@ export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLangOpen, setIsLangOpen] = useState(false);
 
-  const changeLanguage = (lng: string) => {
+  const changeLanguage = async (lng: string) => {
+    await loadLanguage(lng);
     i18n.changeLanguage(lng);
     setIsLangOpen(false);
   };
@@ -32,7 +34,7 @@ export default function Navbar() {
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 font-bold text-2xl tracking-tight text-[#FFB300] flex items-center">
               {siteSettings?.logoUrl ? (
-                <img src={siteSettings.logoUrl} alt="VIDA AUTO Logo" className="h-16 w-auto object-contain brightness-125" />
+                <img src={siteSettings.logoUrl} alt="VIDA AUTO Logo" width="240" height="64" decoding="async" className="h-16 w-auto object-contain brightness-125" />
               ) : (
                 "VIDA AUTO"
               )}
@@ -43,6 +45,7 @@ export default function Navbar() {
                 <NavLink to="/products" className={({ isActive }) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#FFB300] border border-[#FFB300]/30 bg-[#FFB300]/5' : 'text-white hover:text-[#FFB300] hover:bg-[#112240]'}`}>{t('nav.products')}</NavLink>
                 <NavLink to="/factory" className={({ isActive }) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#FFB300] border border-[#FFB300]/30 bg-[#FFB300]/5' : 'text-white hover:text-[#FFB300] hover:bg-[#112240]'}`}>{t('nav.factory', 'Factory')}</NavLink>
                 <NavLink to="/blog" className={({ isActive }) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#FFB300] border border-[#FFB300]/30 bg-[#FFB300]/5' : 'text-white hover:text-[#FFB300] hover:bg-[#112240]'}`}>{t('nav.blog', 'Blog')}</NavLink>
+                <NavLink to="/sourcing-guides" className={({ isActive }) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#FFB300] border border-[#FFB300]/30 bg-[#FFB300]/5' : 'text-white hover:text-[#FFB300] hover:bg-[#112240]'}`}>{t('nav.resources', 'Resources')}</NavLink>
                 <NavLink to="/about" className={({ isActive }) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#FFB300] border border-[#FFB300]/30 bg-[#FFB300]/5' : 'text-white hover:text-[#FFB300] hover:bg-[#112240]'}`}>{t('nav.about')}</NavLink>
               </div>
             </div>
@@ -107,6 +110,7 @@ export default function Navbar() {
             <NavLink to="/products" className={({ isActive }) => `block px-3 py-2 rounded-md text-base font-medium transition-colors ${isActive ? 'bg-[#FFB300]/10 text-[#FFB300]' : 'text-white hover:bg-[#0A192F]'}`}>{t('nav.products')}</NavLink>
             <NavLink to="/factory" className={({ isActive }) => `block px-3 py-2 rounded-md text-base font-medium transition-colors ${isActive ? 'bg-[#FFB300]/10 text-[#FFB300]' : 'text-white hover:bg-[#0A192F]'}`}>{t('nav.factory', 'Factory')}</NavLink>
             <NavLink to="/blog" className={({ isActive }) => `block px-3 py-2 rounded-md text-base font-medium transition-colors ${isActive ? 'bg-[#FFB300]/10 text-[#FFB300]' : 'text-white hover:bg-[#0A192F]'}`}>{t('nav.blog', 'Blog')}</NavLink>
+            <NavLink to="/sourcing-guides" className={({ isActive }) => `block px-3 py-2 rounded-md text-base font-medium transition-colors ${isActive ? 'bg-[#FFB300]/10 text-[#FFB300]' : 'text-white hover:bg-[#0A192F]'}`}>{t('nav.resources', 'Resources')}</NavLink>
             <NavLink to="/about" className={({ isActive }) => `block px-3 py-2 rounded-md text-base font-medium transition-colors ${isActive ? 'bg-[#FFB300]/10 text-[#FFB300]' : 'text-white hover:bg-[#0A192F]'}`}>{t('nav.about')}</NavLink>
             <div className="border-t border-[#FFB300]/20 pt-4 pb-2">
               <div className="flex items-center px-3 space-x-2">

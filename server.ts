@@ -541,6 +541,121 @@ async function startServer() {
     }
   });
 
+  // ─── Discord Weekly Report Webhook Receiver ─────────────────
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/weekly-report
+  // When n8n POSTs to this endpoint, it will:
+  //   1. Save the weekly report to Firestore 'weeklyReports' collection.
+  //   2. Forward the report to the Discord Webhook URL stored in settings/global.
+  // ──────────────────────────────────────────────────────────
+  app.post("/api/webhooks/weekly-report", async (req, res) => {
+    const { title, content, embeds, author, metadata } = req.body;
+
+    try {
+      // Dynamic import firebase-admin
+      const { initializeApp, getApps } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
+
+      if (getApps().length === 0) {
+        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+      }
+
+      const dbId = process.env.FIRESTORE_DB_ID || "ai-studio-3112dc56-9c5d-41d4-8544-f79c07c29140";
+      const fdb = getFirestore(dbId);
+
+      // 1. Save the report to Firestore
+      const reportData = {
+        title: title || "Weekly Auto Parts Sourcing Report",
+        content: content || "",
+        embeds: embeds || null,
+        author: author || "n8n Bot",
+        metadata: metadata || null,
+        receivedAt: new Date().toISOString(),
+      };
+      const reportRef = await fdb.collection("weeklyReports").add(reportData);
+      console.log(`[Webhook/WeeklyReport] Saved report ${reportRef.id} to Firestore.`);
+
+      // 2. Fetch Discord settings
+      const settingsSnap = await fdb.doc("settings/global").get();
+      const s = settingsSnap.data() || {};
+      const { discordWebhookUrl, discordWebhookEnabled } = s;
+
+      if (!discordWebhookEnabled || !discordWebhookUrl) {
+        console.log("[Webhook/WeeklyReport] Discord push is disabled or URL is missing - skipping Discord forward.");
+        return res.json({ 
+          success: true, 
+          savedInFirestore: true, 
+          reportId: reportRef.id, 
+          discordPushed: false, 
+          reason: "Discord integration disabled in settings" 
+        });
+      }
+
+      // 3. Format Discord payload
+      // If embeds are provided by n8n, use them; otherwise, build a clean, styled embed.
+      let discordPayload: any = {};
+      if (embeds && embeds.length > 0) {
+        discordPayload = { embeds };
+      } else {
+        discordPayload = {
+          content: content ? undefined : "🔔 **New Weekly Report Received!**",
+          embeds: [
+            {
+              title: title || "Weekly Auto Parts Sourcing Report",
+              description: content || "No content provided in report.",
+              color: 16757504, // #FFB300 in decimal
+              footer: {
+                text: `Sender: ${author || 'n8n Bot'} • Vida Auto`,
+              },
+              timestamp: new Date().toISOString(),
+            }
+          ]
+        };
+      }
+
+      // If content was sent as a raw string without embeds, we can also choose to send it as content
+      if (content && !embeds) {
+        discordPayload.content = `🔔 **${title || 'Weekly Report'}**\n\n${content}`;
+        // If content is very long, Discord limit for 'content' is 2000 chars, so let's clip it if necessary
+        if (discordPayload.content.length > 1950) {
+          discordPayload.content = discordPayload.content.substring(0, 1900) + "\n\n... (content truncated)";
+        }
+        // Remove embeds since we are sending as raw content
+        delete discordPayload.embeds;
+      }
+
+      // 4. POST to Discord
+      const discordRes = await fetch(discordWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(discordPayload),
+      });
+
+      if (!discordRes.ok) {
+        const errText = await discordRes.text();
+        console.error(`[Webhook/WeeklyReport] Discord Webhook error: ${discordRes.status} ${errText}`);
+        return res.status(502).json({ 
+          success: false, 
+          savedInFirestore: true, 
+          reportId: reportRef.id, 
+          discordPushed: false, 
+          error: `Discord Webhook returned status ${discordRes.status}` 
+        });
+      }
+
+      console.log("[Webhook/WeeklyReport] Successfully pushed report to Discord.");
+      res.json({ 
+        success: true, 
+        savedInFirestore: true, 
+        reportId: reportRef.id, 
+        discordPushed: true 
+      });
+
+    } catch (err: any) {
+      console.error("[Webhook/WeeklyReport] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Comprehensive catch-all error handler for JSON responses
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[SERVER] Unhandled Error:", err);

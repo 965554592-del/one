@@ -6,6 +6,7 @@ interface SiteSettings {
   statsBgUrl: string;
   heroVideoUrl?: string;
   heroBgUrl?: string;
+  heroBgUrlMobile?: string;
   address?: string;
   phone?: string;
   email?: string;
@@ -46,6 +47,8 @@ interface SiteSettings {
   crmWebhookUrl?: string;
   crmWebhookHeaders?: string;
   crmWebhookEnabled?: boolean;
+  discordWebhookUrl?: string;
+  discordWebhookEnabled?: boolean;
   resendApiKey?: string;
   emailProvider?: 'resend' | 'smtp';
   smtpHost?: string;
@@ -61,6 +64,15 @@ interface SiteSettings {
   gadsConversionLabel?: string;
   brandLogos?: { imageUrl: string; categoryId: string; label: string }[];
   aboutSections?: AboutSection[];
+  catalogs?: CatalogItem[];
+  sourcingCategories?: SourcingGuideCategory[];
+  sourcingFeatured?: SourcingGuideFeatured;
+}
+
+export interface CatalogItem {
+  id: string;
+  title: string;
+  fileUrl: string;
 }
 
 export interface AboutSection {
@@ -70,6 +82,22 @@ export interface AboutSection {
   text?: string;
   imageUrl?: string;
   videoUrl?: string;
+}
+
+export interface SourcingGuideCategory {
+  id: string;
+  title: string;
+  icon: string;
+  desc: string;
+  articleCount: number;
+}
+
+export interface SourcingGuideFeatured {
+  title: string;
+  description: string;
+  readTime: string;
+  comingSoon: boolean;
+  slug?: string;
 }
 
 interface AppState {

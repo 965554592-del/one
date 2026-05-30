@@ -11,3 +11,6 @@ coverage/
 # Don't commit user-uploaded files
 public/uploads/*
 !public/uploads/.gitkeep
+
+# Backfill script secrets
+scripts/service-account.json
