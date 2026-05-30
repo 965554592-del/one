@@ -637,14 +637,17 @@ i18n
     }
   });
 
+const loadedLanguages = new Set<string>();
+
 // Lazily load a non-English language bundle and register it with i18next.
 export async function loadLanguage(lang: string) {
   const loader = langLoaders[lang];
   if (!loader) return;
-  if (i18n.hasResourceBundle(lang, 'translation')) return;
+  if (loadedLanguages.has(lang)) return;
   const mod = await loader();
   // Set overwrite = false so that static files do not wipe out custom translations from Firestore!
   i18n.addResourceBundle(lang, 'translation', mod.default, true, false);
+  loadedLanguages.add(lang);
 }
 
 // Function to merge Firestore translations into i18next
