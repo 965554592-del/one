@@ -5071,6 +5071,13 @@ function TopicHubManager() {
   const [loading, setLoading] = useState(true);
   const [selectedTopic, setSelectedTopic] = useState<any | null>(null);
 
+  // Form State
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newProduct, setNewProduct] = useState('Auto Bulbs');
+  const [newAngle, setNewAngle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
   useEffect(() => {
     const q = query(collection(db, 'monitoredTopics'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snap) => {
@@ -5096,7 +5103,33 @@ function TopicHubManager() {
     }
   };
 
+  const handleAddTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, 'monitoredTopics'), {
+        title: newTitle.trim(),
+        product_name: newProduct,
+        angle: newAngle.trim() || 'A professional custom-specified B2B sourcing discussion.',
+        score: 15, // Custom topics get priority 15, higher than AI scores (1-10), ensuring they are picked next!
+        status: 'pending',
+        used: false,
+        createdAt: new Date().toISOString()
+      });
+      setNewTitle('');
+      setNewAngle('');
+      setShowAddForm(false);
+    } catch (err: any) {
+      console.error("Error adding custom topic:", err);
+      alert(t('admin.add_failed', 'Failed to add topic.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const renderStars = (score: number) => {
+    if (score >= 15) return '🔥 (Custom priority)';
     const stars = Math.min(Math.max(Math.round(score / 2), 1), 5);
     return '⭐'.repeat(stars);
   };
@@ -5110,7 +5143,81 @@ function TopicHubManager() {
             {t('admin.topic_hub_desc', 'Explore automated topics generated daily by AI analyzing global trends and search keywords.')}
           </p>
         </div>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="bg-[#FFB300] hover:bg-[#FFB300]/90 text-[#0A192F] px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 shadow-md"
+        >
+          <Plus className="w-4 h-4" />
+          {t('admin.add_custom_topic', 'Add Custom Topic')}
+        </button>
       </div>
+
+      {showAddForm && (
+        <div className="fixed inset-0 bg-[#020C1B]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0A192F] border border-white/10 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-white/5 pb-3">
+              <h3 className="text-lg font-bold text-[#E6F1FF]">{t('admin.add_custom_topic_title', 'Add Custom Topic (添加自定义选题)')}</h3>
+              <button onClick={() => setShowAddForm(false)} className="text-[#8892B0] hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddTopic} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-2">Topic Title / 选题名称</label>
+                <input
+                  type="text"
+                  required
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm"
+                  placeholder="e.g. Sourcing LED Headlights: Vetting for CANbus and Moisture Issues"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-2">Product Category / 产品类别</label>
+                <select
+                  value={newProduct}
+                  onChange={e => setNewProduct(e.target.value)}
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm"
+                >
+                  <option value="Auto Bulbs">Auto Bulbs (车灯/灯泡)</option>
+                  <option value="Mirror Lens">Mirror Lens (后视镜玻璃)</option>
+                  <option value="Headlight Cover">Headlight Cover (大灯面罩)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-2">B2B Angle / Custom Requirements / 写作切入角度 (选填)</label>
+                <textarea
+                  value={newAngle}
+                  onChange={e => setNewAngle(e.target.value)}
+                  rows={4}
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm resize-none"
+                  placeholder="Describe buyer worries or specific industry standard compliance details you want AI to highlight..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-4 py-2 text-sm font-medium text-[#8892B0] hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-[#FFB300] hover:bg-[#FFB300]/90 text-[#0A192F] px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 shadow-md"
+                >
+                  {submitting ? 'Adding...' : 'Add & Prioritize'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Topics List */}
