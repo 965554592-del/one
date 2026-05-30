@@ -155,6 +155,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'sourcing-guides', label: t('admin.sourcing_guides', 'Sourcing Guides'), icon: FileText },
     { id: 'weekly-reports', label: t('admin.weekly_reports', 'Weekly Reports'), icon: Calendar },
     { id: 'publish-logs', label: t('admin.publish_logs', 'Publishing Logs'), icon: Activity },
+    { id: 'topic-hub', label: t('admin.topic_hub', 'AI Topic Hub'), icon: ClipboardList },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
     { id: 'translations', label: t('admin.translations'), icon: Edit },
@@ -229,6 +230,7 @@ export default function AdminDashboard() {
           {activeTab === 'sourcing-guides' && <SourcingGuidesManager />}
           {activeTab === 'weekly-reports' && <WeeklyReportsManager />}
           {activeTab === 'publish-logs' && <PublishingLogsManager />}
+          {activeTab === 'topic-hub' && <TopicHubManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
         </div>
@@ -5055,6 +5057,173 @@ function PublishingLogsManager() {
               <Activity className="w-16 h-16 text-[#8892B0]/20 mb-3 animate-pulse" />
               <h3 className="text-base font-semibold text-[#E6F1FF]">{t('admin.select_log_to_view', 'Select a log to view details')}</h3>        
               <p className="text-sm mt-1 max-w-[300px]">Click any publish log from the history list to view distribution status, product target, and URLs.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopicHubManager() {
+  const { t } = useTranslation();
+  const [topics, setTopics] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTopic, setSelectedTopic] = useState<any | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'monitoredTopics'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setTopics(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      console.error("Error loading monitored topics:", error);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(t('admin.confirm_delete_topic', 'Are you sure you want to delete this topic?'))) return;
+    try {
+      await deleteDoc(doc(db, 'monitoredTopics', id));
+      if (selectedTopic?.id === id) {
+        setSelectedTopic(null);
+      }
+    } catch (e: any) {
+      console.error("Error deleting topic:", e);
+      alert(t('admin.delete_failed'));
+    }
+  };
+
+  const renderStars = (score: number) => {
+    const stars = Math.min(Math.max(Math.round(score / 2), 1), 5);
+    return '⭐'.repeat(stars);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.topic_hub', 'AI Topic Hub (智能选题材料库)')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">
+            {t('admin.topic_hub_desc', 'Explore automated topics generated daily by AI analyzing global trends and search keywords.')}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Topics List */}
+        <div className="lg:col-span-1 bg-[#0A192F] border border-white/5 rounded-xl p-4 h-[600px] flex flex-col">
+          <h3 className="text-sm font-semibold text-[#FFB300] mb-3 uppercase tracking-wider">AI Topic Pool ({topics.length})</h3>
+
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+          ) : topics.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+              <ClipboardList className="w-12 h-12 text-[#8892B0]/20 mb-2" />
+              <p className="text-sm text-[#8892B0]">No topics available.</p>
+              <p className="text-xs text-[#8892B0]/60 mt-1 max-w-[200px]">Topics will appear here once the 7AM n8n monitoring workflow runs.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+              {topics.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedTopic(item)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    selectedTopic?.id === item.id
+                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-[#E6F1FF] truncate mb-1">{item.title}</div>
+                  <div className="text-xs text-[#8892B0] mb-2 flex justify-between">
+                    <span>{renderStars(item.score)} (Score: {item.score}/10)</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase ${
+                      item.status === 'published' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
+                    }`}>
+                      {item.status === 'published' ? 'Used ✓' : 'Pending'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="bg-white/5 px-2 py-0.5 rounded-full text-[#8892B0]">Category: {item.product_name}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Topic Detail View */}
+        <div className="lg:col-span-2 bg-[#0A192F] border border-white/5 rounded-xl p-6 h-[600px] flex flex-col overflow-hidden">
+          {selectedTopic ? (
+            <div className="flex flex-col h-full overflow-hidden">
+              <div className="flex justify-between items-start border-b border-white/5 pb-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#E6F1FF]">{selectedTopic.title}</h3>
+                  <div className="flex items-center gap-3 text-xs text-[#8892B0] mt-2">
+                    <span>Generated: {new Date(selectedTopic.createdAt).toLocaleString()}</span>
+                    <span>•</span>
+                    <span>Product: {selectedTopic.product_name}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDelete(selectedTopic.id)}
+                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                    title="Delete Topic"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4">
+                <div className="bg-[#112240]/50 border border-white/5 rounded-lg p-5 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Formulated Title</h4>
+                    <p className="text-base text-[#E6F1FF] font-medium leading-relaxed">{selectedTopic.title}</p>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">AI Hotness Rating</h4>
+                    <div className="flex items-center gap-2 text-sm text-[#E6F1FF]">
+                      <span className="text-lg">{renderStars(selectedTopic.score)}</span>
+                      <span>({selectedTopic.score} / 10 index)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Status in Content Pipeline</h4>
+                    <span className={`inline-block px-2.5 py-1 text-xs font-semibold rounded-full ${
+                      selectedTopic.status === 'published' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
+                    }`}>
+                      {selectedTopic.status === 'published' ? 'PUBLISHED & CLOSED' : 'PENDING WRITING'}
+                    </span>
+                  </div>
+
+                  {selectedTopic.angle && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-2">B2B Angle & Sourcing Scenario</h4>
+                      <p className="text-sm text-[#8892B0] leading-relaxed whitespace-pre-wrap bg-[#0A192F]/60 p-4 rounded-lg border border-white/5">
+                        {selectedTopic.angle}
+                      </p>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider mb-1">Category Target</h4>
+                    <p className="text-sm text-[#8892B0]">Automated classification matched this to: <strong className="text-white">{selectedTopic.product_name}</strong>.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-[#8892B0]">
+              <ClipboardList className="w-16 h-16 text-[#8892B0]/20 mb-3 animate-pulse" />
+              <h3 className="text-base font-semibold text-[#E6F1FF]">{t('admin.select_topic_to_view', 'Select a topic to view details')}</h3>        
+              <p className="text-sm mt-1 max-w-[300px]">Click any AI formulated topic from the history list to inspect B2B buyer concerns, heat rating, and writing state.</p>
             </div>
           )}
         </div>

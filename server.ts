@@ -702,6 +702,153 @@ async function startServer() {
     }
   });
 
+  // ─── AI Topic Hub Hook: Save Monitored Topics ─────────────
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/save-topic
+  app.post("/api/webhooks/save-topic", async (req, res) => {
+    const { title, score, angle } = req.body;
+    if (!title) return res.status(400).json({ error: "Missing title" });
+
+    try {
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, addDoc, getDocs, query, where } = await import("firebase/firestore");
+
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
+      if (getApps().length === 0) {
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
+      }
+
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+
+      // Check if topic already exists to prevent duplication
+      const q = query(collection(fdb, "monitoredTopics"), where("title", "==", title));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return res.json({ success: true, message: "Duplicate topic, skipped.", alreadyExists: true });
+      }
+
+      // Determine product category
+      const lowerTitle = title.toLowerCase();
+      let product_name = "Auto Bulbs";
+      if (lowerTitle.includes("mirror") || lowerTitle.includes("glass")) {
+        product_name = "Mirror Lens";
+      } else if (lowerTitle.includes("cover") || lowerTitle.includes("pc") || lowerTitle.includes("pmma") || lowerTitle.includes("housing")) {
+        product_name = "Headlight Cover";
+      }
+
+      const topicData = {
+        title,
+        score: Number(score) || 5,
+        angle: angle || "",
+        product_name,
+        used: false,
+        status: "pending",
+        createdAt: new Date().toISOString()
+      };
+
+      const docRef = await addDoc(collection(fdb, "monitoredTopics"), topicData);
+      console.log(`[Webhook/SaveTopic] Saved topic ${docRef.id} to Firestore.`);
+
+      res.json({ success: true, savedInFirestore: true, topicId: docRef.id });
+    } catch (err: any) {
+      console.error("[Webhook/SaveTopic] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── AI Topic Hub Hook: Get High-Scoring Topic and Mark Used ─────
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/get-hot-topic
+  app.get("/api/webhooks/get-hot-topic", async (req, res) => {
+    try {
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, getDocs, query, where, doc, updateDoc } = await import("firebase/firestore");
+
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
+      if (getApps().length === 0) {
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
+      }
+
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+
+      const q = query(collection(fdb, "monitoredTopics"), where("used", "==", false));
+      const snap = await getDocs(q);
+
+      let chosenTopic: any = null;
+
+      if (!snap.empty) {
+        const topics = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        // Sort by score desc, then createdAt desc in-memory (highly robust, no composite indexes needed!)
+        topics.sort((a, b) => {
+          if (b.data.score !== a.data.score) {
+            return (b.data.score || 0) - (a.data.score || 0);
+          }
+          return new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime();
+        });
+
+        const top = topics[0];
+        const docRef = doc(fdb, "monitoredTopics", top.id);
+        await updateDoc(docRef, { used: true, status: "published", publishedAt: new Date().toISOString() });
+        chosenTopic = {
+          product_name: top.data.product_name,
+          topic: top.data.title,
+          angle: top.data.angle,
+          source: "monitored"
+        };
+      }
+
+      // Define standard fallbacks in case pool is empty
+      const DB: any = {
+        "Auto Bulbs": { name: 'Auto Bulbs', keywords: ['LED headlight manufacturer', 'headlight bulbs wholesale', 'auto lamp supplier'], topics: ['LED vs HID vs Halogen', 'Heat Dissipation & Lifespan', 'ECE R112 Anti-Glare', 'Automotive-Grade vs Generic', 'Canbus Compatibility'] },
+        "Mirror Lens": { name: 'Mirror Lens', keywords: ['auto mirror glass manufacturer', 'replacement mirror wholesale', 'heated mirror glass'], topics: ['Blue Anti-glare Mirror', 'Heated Mirror Adoption', 'Blind Spot Assist', 'Durability & Quality', 'E-mark Certification'] },
+        "Headlight Cover": { name: 'Headlight Cover', keywords: ['headlight lens wholesale', 'auto lamp cover manufacturer', 'UV resistant cover'], topics: ['UV Yellowing Prevention', 'PC vs PMMA vs Glass', 'Restore vs Replace', 'Light Transmittance', 'Mold Cost & MOQ'] }
+      };
+
+      if (!chosenTopic) {
+        const keys = Object.keys(DB);
+        const w = Math.floor(Date.now() / (7 * 864e5));
+        const pk = keys[w % 3];
+        const p = DB[pk];
+        const t = p.topics[w % 5];
+        chosenTopic = {
+          product_name: p.name,
+          topic: t,
+          angle: "A general discussion on professional automotive aftermarket B2B sourcing standards.",
+          source: "fallback"
+        };
+      }
+
+      let keywords: string[] = [];
+      if (chosenTopic.product_name === "Mirror Lens") {
+        keywords = DB["Mirror Lens"].keywords;
+      } else if (chosenTopic.product_name === "Headlight Cover") {
+        keywords = DB["Headlight Cover"].keywords;
+      } else {
+        keywords = DB["Auto Bulbs"].keywords;
+      }
+
+      res.json({
+        product_name: chosenTopic.product_name,
+        topic: chosenTopic.topic,
+        angle: chosenTopic.angle,
+        keywords,
+        source: chosenTopic.source,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      console.error("[Webhook/GetHotTopic] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Comprehensive catch-all error handler for JSON responses
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[SERVER] Unhandled Error:", err);

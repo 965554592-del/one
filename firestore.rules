@@ -305,5 +305,10 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isAdmin();
     }
+
+    match /monitoredTopics/{topicId} {
+      allow create, read, update: if true;
+      allow delete: if isAdmin();
+    }
   }
 }
