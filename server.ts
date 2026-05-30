@@ -709,17 +709,24 @@ async function startServer() {
     if (!title) return res.status(400).json({ error: "Missing title" });
 
     try {
-      const { initializeApp, getApps } = await import("firebase-admin/app");
-      const { getFirestore } = await import("firebase-admin/firestore");
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, addDoc, getDocs, query, where } = await import("firebase/firestore");
 
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
       if (getApps().length === 0) {
-        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
       }
 
-      const db = getFirestore();
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
 
-      // Check if topic already exists to prevent duplication
-      const snap = await db.collection("monitoredTopics").where("title", "==", title).get();
+      // Check if topic already exists to prevent duplication (monitoredTopics is publicly readable)
+      const q = query(collection(fdb, "monitoredTopics"), where("title", "==", title));
+      const snap = await getDocs(q);
       if (!snap.empty) {
         return res.json({ success: true, message: "Duplicate topic, skipped.", alreadyExists: true });
       }
@@ -743,7 +750,7 @@ async function startServer() {
         createdAt: new Date().toISOString()
       };
 
-      const docRef = await db.collection("monitoredTopics").add(topicData);
+      const docRef = await addDoc(collection(fdb, "monitoredTopics"), topicData);
       console.log(`[Webhook/SaveTopic] Saved topic ${docRef.id} to Firestore.`);
 
       res.json({ success: true, savedInFirestore: true, topicId: docRef.id });
@@ -757,16 +764,23 @@ async function startServer() {
   // Paste this URL into n8n: https://<your-domain>/api/webhooks/get-hot-topic
   app.get("/api/webhooks/get-hot-topic", async (req, res) => {
     try {
-      const { initializeApp, getApps } = await import("firebase-admin/app");
-      const { getFirestore } = await import("firebase-admin/firestore");
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, getDocs, query, where, doc, updateDoc } = await import("firebase/firestore");
 
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
       if (getApps().length === 0) {
-        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
       }
 
-      const db = getFirestore();
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
 
-      const snap = await db.collection("monitoredTopics").where("used", "==", false).get();
+      const q = query(collection(fdb, "monitoredTopics"), where("used", "==", false));
+      const snap = await getDocs(q);
 
       let chosenTopic: any = null;
 
@@ -781,8 +795,8 @@ async function startServer() {
         });
 
         const top = topics[0];
-        const docRef = db.collection("monitoredTopics").doc(top.id);
-        await docRef.update({ used: true, status: "published", publishedAt: new Date().toISOString() });
+        const docRef = doc(fdb, "monitoredTopics", top.id);
+        await updateDoc(docRef, { used: true, status: "published", publishedAt: new Date().toISOString() });
         chosenTopic = {
           product_name: top.data.product_name,
           topic: top.data.title,
@@ -839,42 +853,73 @@ async function startServer() {
   // Paste this URL into n8n: https://<your-domain>/api/webhooks/feedback-metrics
   app.get("/api/webhooks/feedback-metrics", async (req, res) => {
     try {
-      const { initializeApp, getApps } = await import("firebase-admin/app");
-      const { getFirestore } = await import("firebase-admin/firestore");
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, getDocs } = await import("firebase/firestore");
 
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
       if (getApps().length === 0) {
-        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
       }
 
-      const db = getFirestore();
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
 
-      // Query recent inquiries (B2B Conversions)
-      const inquiriesSnap = await db.collection("inquiries").get();
-      const inquiries = inquiriesSnap.docs.map(d => {
-        const data = d.data();
-        return {
-          product: data.product || data.productName || "General Inquiry",
-          message: data.message || data.comments || "",
-          createdAt: data.createdAt || ""
-        };
-      });
-      // Sort desc by createdAt and slice in memory
-      inquiries.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      const recentInquiries = inquiries.slice(0, 15);
+      let recentInquiries: any[] = [];
+      try {
+        const inquiriesSnap = await getDocs(collection(fdb, "inquiries"));
+        const inquiries = inquiriesSnap.docs.map(d => {
+          const data = d.data();
+          return {
+            product: data.product || data.productName || "General Inquiry",
+            message: data.message || data.comments || "",
+            createdAt: data.createdAt || ""
+          };
+        });
+        inquiries.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        recentInquiries = inquiries.slice(0, 15);
+      } catch (e: any) {
+        console.warn("[FeedbackMetrics] Could not read inquiries due to permission rules, falling back gracefully.");
+      }
 
-      // Query recent published logs
-      const logsSnap = await db.collection("publishLogs").get();
-      const logs = logsSnap.docs.map(d => {
-        const data = d.data();
-        return {
-          topic: data.topic || "",
-          product: data.product || "",
-          channels: data.channels || 1,
-          loggedAt: data.loggedAt || data.timestamp || ""
-        };
-      });
-      logs.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
-      const recentPublished = logs.slice(0, 15);
+      let recentPublished: any[] = [];
+      try {
+        // Try reading publishLogs collection
+        const logsSnap = await getDocs(collection(fdb, "publishLogs"));
+        const logs = logsSnap.docs.map(d => {
+          const data = d.data();
+          return {
+            topic: data.topic || "",
+            product: data.product || "",
+            channels: data.channels || 1,
+            loggedAt: data.loggedAt || data.timestamp || ""
+          };
+        });
+        logs.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
+        recentPublished = logs.slice(0, 15);
+      } catch (err: any) {
+        // Fallback to publicly readable blogPosts collection
+        console.warn("[FeedbackMetrics] Could not read publishLogs, falling back to public blogPosts collection.");
+        try {
+          const postsSnap = await getDocs(collection(fdb, "blogPosts"));
+          const posts = postsSnap.docs.map(d => {
+            const data = d.data();
+            return {
+              topic: data.title || "",
+              product: data.category || "Auto Bulbs",
+              channels: 7,
+              loggedAt: data.createdAt || ""
+            };
+          });
+          posts.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
+          recentPublished = posts.slice(0, 15);
+        } catch (fallbackErr: any) {
+          console.error("[FeedbackMetrics] Graceful fallback to blogPosts failed:", fallbackErr);
+        }
+      }
 
       res.json({
         success: true,
