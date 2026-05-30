@@ -709,24 +709,17 @@ async function startServer() {
     if (!title) return res.status(400).json({ error: "Missing title" });
 
     try {
-      const { initializeApp, getApps, getApp } = await import("firebase/app");
-      const { getFirestore, collection, addDoc, getDocs, query, where } = await import("firebase/firestore");
+      const { initializeApp, getApps } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
 
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      let app;
       if (getApps().length === 0) {
-        app = initializeApp(firebaseConfig);
-      } else {
-        app = getApp();
+        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
       }
 
-      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+      const db = getFirestore();
 
       // Check if topic already exists to prevent duplication
-      const q = query(collection(fdb, "monitoredTopics"), where("title", "==", title));
-      const snap = await getDocs(q);
+      const snap = await db.collection("monitoredTopics").where("title", "==", title).get();
       if (!snap.empty) {
         return res.json({ success: true, message: "Duplicate topic, skipped.", alreadyExists: true });
       }
@@ -750,7 +743,7 @@ async function startServer() {
         createdAt: new Date().toISOString()
       };
 
-      const docRef = await addDoc(collection(fdb, "monitoredTopics"), topicData);
+      const docRef = await db.collection("monitoredTopics").add(topicData);
       console.log(`[Webhook/SaveTopic] Saved topic ${docRef.id} to Firestore.`);
 
       res.json({ success: true, savedInFirestore: true, topicId: docRef.id });
@@ -764,23 +757,16 @@ async function startServer() {
   // Paste this URL into n8n: https://<your-domain>/api/webhooks/get-hot-topic
   app.get("/api/webhooks/get-hot-topic", async (req, res) => {
     try {
-      const { initializeApp, getApps, getApp } = await import("firebase/app");
-      const { getFirestore, collection, getDocs, query, where, doc, updateDoc } = await import("firebase/firestore");
+      const { initializeApp, getApps } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
 
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      let app;
       if (getApps().length === 0) {
-        app = initializeApp(firebaseConfig);
-      } else {
-        app = getApp();
+        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
       }
 
-      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+      const db = getFirestore();
 
-      const q = query(collection(fdb, "monitoredTopics"), where("used", "==", false));
-      const snap = await getDocs(q);
+      const snap = await db.collection("monitoredTopics").where("used", "==", false).get();
 
       let chosenTopic: any = null;
 
@@ -791,12 +777,12 @@ async function startServer() {
           if (b.data.score !== a.data.score) {
             return (b.data.score || 0) - (a.data.score || 0);
           }
-          return new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime();
+          return new Date(b.data.createdAt || 0).getTime() - new Date(a.data.createdAt || 0).getTime();
         });
 
         const top = topics[0];
-        const docRef = doc(fdb, "monitoredTopics", top.id);
-        await updateDoc(docRef, { used: true, status: "published", publishedAt: new Date().toISOString() });
+        const docRef = db.collection("monitoredTopics").doc(top.id);
+        await docRef.update({ used: true, status: "published", publishedAt: new Date().toISOString() });
         chosenTopic = {
           product_name: top.data.product_name,
           topic: top.data.title,
@@ -853,23 +839,17 @@ async function startServer() {
   // Paste this URL into n8n: https://<your-domain>/api/webhooks/feedback-metrics
   app.get("/api/webhooks/feedback-metrics", async (req, res) => {
     try {
-      const { initializeApp, getApps, getApp } = await import("firebase/app");
-      const { getFirestore, collection, getDocs } = await import("firebase/firestore");
+      const { initializeApp, getApps } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
 
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      let app;
       if (getApps().length === 0) {
-        app = initializeApp(firebaseConfig);
-      } else {
-        app = getApp();
+        initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0915949910" });
       }
 
-      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+      const db = getFirestore();
 
       // Query recent inquiries (B2B Conversions)
-      const inquiriesSnap = await getDocs(collection(fdb, "inquiries"));
+      const inquiriesSnap = await db.collection("inquiries").get();
       const inquiries = inquiriesSnap.docs.map(d => {
         const data = d.data();
         return {
@@ -883,7 +863,7 @@ async function startServer() {
       const recentInquiries = inquiries.slice(0, 15);
 
       // Query recent published logs
-      const logsSnap = await getDocs(collection(fdb, "publishLogs"));
+      const logsSnap = await db.collection("publishLogs").get();
       const logs = logsSnap.docs.map(d => {
         const data = d.data();
         return {
