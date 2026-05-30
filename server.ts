@@ -849,6 +849,65 @@ async function startServer() {
     }
   });
 
+  // ─── AI Topic Hub Hook: Feedback Metrics (B2B Conversion Data) ───
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/feedback-metrics
+  app.get("/api/webhooks/feedback-metrics", async (req, res) => {
+    try {
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, getDocs } = await import("firebase/firestore");
+
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      let app;
+      if (getApps().length === 0) {
+        app = initializeApp(firebaseConfig);
+      } else {
+        app = getApp();
+      }
+
+      const fdb = getFirestore(app, firebaseConfig.firestoreDatabaseId || "vida-prod");
+
+      // Query recent inquiries (B2B Conversions)
+      const inquiriesSnap = await getDocs(collection(fdb, "inquiries"));
+      const inquiries = inquiriesSnap.docs.map(d => {
+        const data = d.data();
+        return {
+          product: data.product || data.productName || "General Inquiry",
+          message: data.message || data.comments || "",
+          createdAt: data.createdAt || ""
+        };
+      });
+      // Sort desc by createdAt and slice in memory
+      inquiries.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      const recentInquiries = inquiries.slice(0, 15);
+
+      // Query recent published logs
+      const logsSnap = await getDocs(collection(fdb, "publishLogs"));
+      const logs = logsSnap.docs.map(d => {
+        const data = d.data();
+        return {
+          topic: data.topic || "",
+          product: data.product || "",
+          channels: data.channels || 1,
+          loggedAt: data.loggedAt || data.timestamp || ""
+        };
+      });
+      logs.sort((a, b) => new Date(b.loggedAt || 0).getTime() - new Date(a.loggedAt || 0).getTime());
+      const recentPublished = logs.slice(0, 15);
+
+      res.json({
+        success: true,
+        recentInquiries,
+        recentPublished,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      console.error("[Webhook/FeedbackMetrics] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Comprehensive catch-all error handler for JSON responses
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[SERVER] Unhandled Error:", err);
