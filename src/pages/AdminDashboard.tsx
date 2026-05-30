@@ -1076,7 +1076,7 @@ function SourcingGuidesManager() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.title', 'Title')}</label>
+                <label className="block text-xs text-[#8892B0] mb-1">{t('admin.guide_title', 'Title')}</label>
                 <input type="text" value={newCat.title} onChange={e => setNewCat({ ...newCat, title: e.target.value })} placeholder="e.g. Sourcing & Negotiation" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
               </div>
               <div>
@@ -1130,7 +1130,7 @@ function SourcingGuidesManager() {
         <h3 className="text-lg font-semibold text-[#E6F1FF]">{t('admin.featured_guide', 'Featured Guide')}</h3>
         <div className="bg-[#0A192F] border border-white/5 rounded-xl p-5 space-y-3">
           <div>
-            <label className="block text-xs text-[#8892B0] mb-1">{t('admin.title', 'Title')}</label>
+            <label className="block text-xs text-[#8892B0] mb-1">{t('admin.guide_title', 'Title')}</label>
             <input type="text" value={featured.title} onChange={e => setFeatured({ ...featured, title: e.target.value })} placeholder="Guide title" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md" />
           </div>
           <div>
