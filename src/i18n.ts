@@ -643,20 +643,21 @@ export async function loadLanguage(lang: string) {
   if (!loader) return;
   if (i18n.hasResourceBundle(lang, 'translation')) return;
   const mod = await loader();
-  i18n.addResourceBundle(lang, 'translation', mod.default, true, true);
+  // Set overwrite = false so that static files do not wipe out custom translations from Firestore!
+  i18n.addResourceBundle(lang, 'translation', mod.default, true, false);
 }
 
 // Function to merge Firestore translations into i18next
 export const updateTranslations = (translations: any[]) => {
   translations.forEach(item => {
     const { key, en, zh, fr, de, ja, ru, es } = item;
-    if (en) i18n.addResource('en', 'translation', key, en);
-    if (zh) i18n.addResource('zh', 'translation', key, zh);
-    if (fr) i18n.addResource('fr', 'translation', key, fr);
-    if (de) i18n.addResource('de', 'translation', key, de);
-    if (ja) i18n.addResource('ja', 'translation', key, ja);
-    if (ru) i18n.addResource('ru', 'translation', key, ru);
-    if (es) i18n.addResource('es', 'translation', key, es);
+    if (en && en.trim() !== '') i18n.addResource('en', 'translation', key, en);
+    if (zh && zh.trim() !== '') i18n.addResource('zh', 'translation', key, zh);
+    if (fr && fr.trim() !== '') i18n.addResource('fr', 'translation', key, fr);
+    if (de && de.trim() !== '') i18n.addResource('de', 'translation', key, de);
+    if (ja && ja.trim() !== '') i18n.addResource('ja', 'translation', key, ja);
+    if (ru && ru.trim() !== '') i18n.addResource('ru', 'translation', key, ru);
+    if (es && es.trim() !== '') i18n.addResource('es', 'translation', key, es);
   });
 };
 

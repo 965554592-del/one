@@ -69,7 +69,7 @@ export default function App() {
         const data = doc.data();
         const { key, ...langs } = data;
         Object.keys(langs).forEach((lang) => {
-          if (typeof langs[lang] === 'string') {
+          if (typeof langs[lang] === 'string' && langs[lang].trim() !== '') {
             i18n.addResource(lang, 'translation', key, langs[lang]);
           }
         });
