@@ -153,6 +153,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'about-sections', label: t('admin.about_sections', 'About Sections'), icon: FileText },
     { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
     { id: 'sourcing-guides', label: t('admin.sourcing_guides', 'Sourcing Guides'), icon: FileText },
+    { id: 'weekly-reports', label: t('admin.weekly_reports', 'Weekly Reports'), icon: Calendar },
     { id: 'hero-stylist', label: t('admin.hero_stylist', 'Hero Stylist'), icon: Layers },
     { id: 'contacts', label: t('admin.contacts_management', 'Contact Info'), icon: Mail },
     { id: 'translations', label: t('admin.translations'), icon: Edit },
@@ -225,6 +226,7 @@ export default function AdminDashboard() {
           {activeTab === 'about-sections' && <AboutSectionsManager />}
           {activeTab === 'blog' && <BlogManager />}
           {activeTab === 'sourcing-guides' && <SourcingGuidesManager />}
+          {activeTab === 'weekly-reports' && <WeeklyReportsManager />}
           {activeTab === 'settings' && <SettingsManager />}
           {activeTab === 'health' && <SystemHealthManager />}
         </div>
@@ -4758,6 +4760,150 @@ function SettingsManager() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function WeeklyReportsManager() {
+  const { t } = useTranslation();
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'weeklyReports'), orderBy('receivedAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      console.error("Error loading weekly reports:", error);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(t('admin.confirm_delete_report', 'Are you sure you want to delete this report?'))) return;
+    try {
+      await deleteDoc(doc(db, 'weeklyReports', id));
+      if (selectedReport?.id === id) {
+        setSelectedReport(null);
+      }
+    } catch (e: any) {
+      console.error("Error deleting report:", e);
+      alert(t('admin.delete_failed'));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.weekly_reports', 'Weekly Reports (n8n)')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">
+            {t('admin.weekly_reports_desc', 'View and manage weekly reports received from n8n automation and forwarded to Discord.')}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Reports List */}
+        <div className="lg:col-span-1 bg-[#0A192F] border border-white/5 rounded-xl p-4 h-[600px] flex flex-col">
+          <h3 className="text-sm font-semibold text-[#FFB300] mb-3 uppercase tracking-wider">Reports History ({reports.length})</h3>
+          
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+          ) : reports.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+              <Calendar className="w-12 h-12 text-[#8892B0]/20 mb-2" />
+              <p className="text-sm text-[#8892B0]">No reports received yet.</p>
+              <p className="text-xs text-[#8892B0]/60 mt-1 max-w-[200px]">Configure your n8n workflow to POST to the webhook endpoint.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+              {reports.map((report) => (
+                <button
+                  key={report.id}
+                  onClick={() => setSelectedReport(report)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    selectedReport?.id === report.id
+                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-[#E6F1FF] truncate mb-1">{report.title}</div>
+                  <div className="text-xs text-[#8892B0] mb-2">{report.receivedAt?.split('T')[0]} {report.receivedAt?.split('T')[1]?.substring(0, 5)}</div>
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="bg-white/5 px-2 py-0.5 rounded-full text-[#8892B0]">By: {report.author || 'n8n Bot'}</span>
+                    <span className={`px-2 py-0.5 rounded-full ${report.discordPushed ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                      {report.discordPushed ? 'Discord ✓' : 'No Discord'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Report Content View */}
+        <div className="lg:col-span-2 bg-[#0A192F] border border-white/5 rounded-xl p-6 h-[600px] flex flex-col overflow-hidden">
+          {selectedReport ? (
+            <div className="flex flex-col h-full overflow-hidden">
+              <div className="flex justify-between items-start border-b border-white/5 pb-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#E6F1FF]">{selectedReport.title}</h3>
+                  <div className="flex items-center gap-3 text-xs text-[#8892B0] mt-2">
+                    <span>Received: {new Date(selectedReport.receivedAt).toLocaleString()}</span>
+                    <span>•</span>
+                    <span>Source: {selectedReport.author}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDelete(selectedReport.id)}
+                    className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                    title="Delete Report"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                <div className="bg-[#112240]/50 border border-white/5 rounded-lg p-5">
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    {selectedReport.content ? (
+                      <div 
+                        className="whitespace-pre-wrap font-sans text-sm text-[#8892B0] leading-relaxed"
+                        style={{ wordBreak: 'break-word' }}
+                      >
+                        {selectedReport.content}
+                      </div>
+                    ) : (
+                      <div className="text-[#8892B0] italic text-sm">No report body text content.</div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedReport.embeds && (
+                  <div className="mt-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-[#FFB300] uppercase tracking-wider">Discord Embeds Data</h4>
+                    <pre className="text-xs text-[#8892B0] bg-[#112240] p-4 rounded-lg border border-white/5 overflow-x-auto font-mono">
+                      {JSON.stringify(selectedReport.embeds, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-[#8892B0]">
+              <FileText className="w-16 h-16 text-[#8892B0]/20 mb-3 animate-pulse" />
+              <h3 className="text-base font-semibold text-[#E6F1FF]">{t('admin.select_report_to_view', 'Select a report to view details')}</h3>
+              <p className="text-sm mt-1 max-w-[300px]">Click any weekly report from the history list to view its full content, source metadata, and delivery status.</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
