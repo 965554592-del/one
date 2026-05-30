@@ -4,26 +4,26 @@ import SEO from '../components/SEO';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/useStore';
 
-const defaultCategories = [
-  { id: 'sourcing', title: 'Sourcing & Negotiation', icon: '🤝', desc: 'MOQ, pricing strategies, contracts, and more.', articleCount: 0 },
-  { id: 'quality', title: 'Quality & Certifications', icon: '✅', desc: 'IATF 16949, ISO, factory audit, testing.', articleCount: 0 },
-  { id: 'tech', title: 'Product Technology', icon: '🔧', desc: 'Brake pads, headlights, suspension – technical deep dives.', articleCount: 0 },
-  { id: 'logistics', title: 'Logistics & Payment', icon: '🚢', desc: 'FOB, CIF, payment terms, shipping insurance.', articleCount: 0 },
-  { id: 'supplier', title: 'Supplier Management', icon: '🏭', desc: 'How to vet Chinese factories, performance tracking.', articleCount: 0 },
-  { id: 'trends', title: 'Industry Trends', icon: '📈', desc: 'EV parts, market shifts, compliance updates.', articleCount: 0 },
-];
-
-const defaultFeatured = {
-  title: 'Minimum Order Quantity (MOQ) in Auto Parts',
-  description: 'Learn what MOQ means, why suppliers set it, and how to negotiate better terms for your business.',
-  readTime: '10 min read',
-  comingSoon: true,
-  slug: '',
-};
-
 const SourcingGuides: React.FC = () => {
   const { t } = useTranslation();
   const { siteSettings } = useStore();
+
+  const defaultCategories = [
+    { id: 'sourcing', title: t('sourcing_guides.cat_sourcing_title', 'Sourcing & Negotiation'), icon: '🤝', desc: t('sourcing_guides.cat_sourcing_desc', 'MOQ, pricing strategies, contracts, and more.'), articleCount: 0 },
+    { id: 'quality', title: t('sourcing_guides.cat_quality_title', 'Quality & Certifications'), icon: '✅', desc: t('sourcing_guides.cat_quality_desc', 'IATF 16949, ISO, factory audit, testing.'), articleCount: 0 },
+    { id: 'tech', title: t('sourcing_guides.cat_tech_title', 'Product Technology'), icon: '🔧', desc: t('sourcing_guides.cat_tech_desc', 'Brake pads, headlights, suspension – technical deep dives.'), articleCount: 0 },
+    { id: 'logistics', title: t('sourcing_guides.cat_logistics_title', 'Logistics & Payment'), icon: '🚢', desc: t('sourcing_guides.cat_logistics_desc', 'FOB, CIF, payment terms, shipping insurance.'), articleCount: 0 },
+    { id: 'supplier', title: t('sourcing_guides.cat_supplier_title', 'Supplier Management'), icon: '🏭', desc: t('sourcing_guides.cat_supplier_desc', 'How to vet Chinese factories, performance tracking.'), articleCount: 0 },
+    { id: 'trends', title: t('sourcing_guides.cat_trends_title', 'Industry Trends'), icon: '📈', desc: t('sourcing_guides.cat_trends_desc', 'EV parts, market shifts, compliance updates.'), articleCount: 0 },
+  ];
+
+  const defaultFeatured = {
+    title: t('sourcing_guides.feat_title', 'Minimum Order Quantity (MOQ) in Auto Parts'),
+    description: t('sourcing_guides.feat_desc', 'Learn what MOQ means, why suppliers set it, and how to negotiate better terms for your business.'),
+    readTime: t('sourcing_guides.feat_read_time', '10 min read'),
+    comingSoon: true,
+    slug: '',
+  };
 
   const categories = (siteSettings?.sourcingCategories && siteSettings.sourcingCategories.length > 0)
     ? siteSettings.sourcingCategories
