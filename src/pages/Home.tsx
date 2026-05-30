@@ -591,6 +591,9 @@ export default function Home() {
             decoding="async"
             className="flex-1 min-h-[100px] mt-2 rounded-lg object-contain w-full bg-[#0A192F] p-2 group-hover:scale-[1.03] transition-transform duration-300" 
             referrerPolicy="no-referrer" 
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://picsum.photos/seed/nanabuana-part/400/300";
+            }}
           />
           <div className="text-[12px] mt-2 opacity-70 text-[#E6F1FF]">
             {starProduct ? `SKU: ${starProduct.sku}` : "SKU: WD-7742-LX"}

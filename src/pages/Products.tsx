@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Filter, ArrowRight, FileText } from 'lucide-react';
+import { Search, Filter, ArrowRight, FileText, ArrowLeft } from 'lucide-react';
 import SEO from '../components/SEO';
 import YMMSelect from '../components/YMMSelect';
 import { trackEvent } from '../lib/pixel';
@@ -182,6 +182,9 @@ export default function Products() {
           { name: 'Products', url: '/products' },
         ]}
       />
+      <Link to="/" className="inline-flex items-center text-sm text-[#8892B0] hover:text-[#FFB300] mb-6 transition-colors">
+        <ArrowLeft className="w-4 h-4 mr-2" /> {t('products.back_to_home', 'Back to Home')}
+      </Link>
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-[#E6F1FF] mb-4 md:mb-0">{t('products.title')}</h1>
         
@@ -328,6 +331,9 @@ export default function Products() {
                       loading="lazy"
                       className="w-full h-48 object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = `https://picsum.photos/seed/nanabuana-${product.id}/400/300`;
+                      }}
                     />
                   ) : (
                     <img 

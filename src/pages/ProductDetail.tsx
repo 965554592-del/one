@@ -305,6 +305,9 @@ export default function ProductDetail() {
                     decoding="async"
                     className="w-full max-h-[70vh] object-contain"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://picsum.photos/seed/nanabuana-${product.id}/800/600`;
+                    }}
                   />
                   <span className="absolute bottom-2 right-2 text-[10px] bg-black/60 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
                     {t('products.view_original', 'View original')}
