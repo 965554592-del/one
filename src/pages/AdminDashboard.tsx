@@ -489,7 +489,22 @@ function BlogManager() {
             </div>
             <div>
               <label className="block text-sm font-medium text-[#8892B0] mb-1">Category</label>
-              <input type="text" value={newPost.category} onChange={e => setNewPost({...newPost, category: e.target.value})} placeholder="How-to / Industry / News" className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+              <select value={newPost.category} onChange={e => setNewPost({...newPost, category: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50">
+                <option value="">— Select category —</option>
+                <optgroup label="Sourcing Guides sections">
+                  <option value="Sourcing &amp; Negotiation">🤝 Sourcing &amp; Negotiation</option>
+                  <option value="Quality &amp; Certifications">✅ Quality &amp; Certifications</option>
+                  <option value="Product Technology">🔧 Product Technology</option>
+                  <option value="Logistics &amp; Payment">🚢 Logistics &amp; Payment</option>
+                  <option value="Supplier Management">🏭 Supplier Management</option>
+                  <option value="Industry Trends">📈 Industry Trends</option>
+                </optgroup>
+                <optgroup label="General blog">
+                  <option value="How-to">How-to</option>
+                  <option value="News">News</option>
+                </optgroup>
+              </select>
+              <p className="text-xs text-[#8892B0]/60 mt-1">Sourcing Guides sections will show the article count automatically.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-[#8892B0] mb-1">Read Time</label>
@@ -1002,6 +1017,12 @@ function SourcingGuidesManager() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [newCat, setNewCat] = useState({ title: '', icon: '📦', desc: '' });
+  const [articleCatTitle, setArticleCatTitle] = useState('');
+  const [catPosts, setCatPosts] = useState<any[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [isAddingArticle, setIsAddingArticle] = useState(false);
+  const [editingArticleId, setEditingArticleId] = useState<string | null>(null);
+  const [articleForm, setArticleForm] = useState({ title: '', slug: '', excerpt: '', content: '', coverImage: '', readTime: '5 min', author: 'Vida Auto', tags: '' });
 
   useEffect(() => {
     if (siteSettings?.sourcingCategories) setCategories(siteSettings.sourcingCategories);
@@ -1046,6 +1067,57 @@ function SourcingGuidesManager() {
 
   const handleSaveFeatured = () => {
     persist(categories, featured);
+  };
+
+  const FIXED_CATS = ['Sourcing & Negotiation', 'Quality & Certifications', 'Product Technology', 'Logistics & Payment', 'Supplier Management', 'Industry Trends'];
+  const allCatTitles = [...new Set([...FIXED_CATS, ...categories.map((c: any) => c.title).filter(Boolean)])];
+
+  const fetchCatPosts = async (catTitle: string) => {
+    setLoadingPosts(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'blogPosts'), orderBy('publishedAt', 'desc')));
+      setCatPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.category === catTitle));
+    } catch (e) { console.error(e); }
+    finally { setLoadingPosts(false); }
+  };
+
+  const handleSelectArticleCat = (title: string) => {
+    setArticleCatTitle(title);
+    setIsAddingArticle(false);
+    setEditingArticleId(null);
+    setArticleForm({ title: '', slug: '', excerpt: '', content: '', coverImage: '', readTime: '5 min', author: 'Vida Auto', tags: '' });
+    if (title) fetchCatPosts(title);
+    else setCatPosts([]);
+  };
+
+  const handleSaveArticle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!articleForm.title) return;
+    const slug = articleForm.slug || articleForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const data = { ...articleForm, slug, category: articleCatTitle, tags: articleForm.tags.split(',').map((s: string) => s.trim()).filter(Boolean), updatedAt: new Date().toISOString() };
+    try {
+      if (editingArticleId) {
+        await setDoc(doc(db, 'blogPosts', editingArticleId), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'blogPosts'), { ...data, publishedAt: new Date().toISOString() });
+      }
+      setIsAddingArticle(false);
+      setEditingArticleId(null);
+      setArticleForm({ title: '', slug: '', excerpt: '', content: '', coverImage: '', readTime: '5 min', author: 'Vida Auto', tags: '' });
+      fetchCatPosts(articleCatTitle);
+    } catch (e: any) { alert('Save failed: ' + e.message); }
+  };
+
+  const handleEditArticle = (post: any) => {
+    setEditingArticleId(post.id);
+    setIsAddingArticle(true);
+    setArticleForm({ title: post.title || '', slug: post.slug || '', excerpt: post.excerpt || '', content: post.content || '', coverImage: post.coverImage || '', readTime: post.readTime || '5 min', author: post.author || 'Vida Auto', tags: Array.isArray(post.tags) ? post.tags.join(', ') : (post.tags || '') });
+  };
+
+  const handleDeleteArticle = async (id: string) => {
+    if (!confirm('Delete this article?')) return;
+    await deleteDoc(doc(db, 'blogPosts', id));
+    fetchCatPosts(articleCatTitle);
   };
 
   const iconOptions = ['🤝', '✅', '🔧', '🚢', '🏭', '📈', '📦', '💡', '🔍', '🛡️', '⚙️', '🌍'];
@@ -1155,6 +1227,110 @@ function SourcingGuidesManager() {
           </div>
           <button onClick={handleSaveFeatured} className="px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]">{t('admin.save', 'Save')}</button>
         </div>
+      </div>
+
+      {/* Article Management Section */}
+      <div className="space-y-4 border-t border-white/5 pt-6">
+        <div>
+          <h3 className="text-lg font-semibold text-[#E6F1FF]">📝 Article Management</h3>
+          <p className="text-sm text-[#8892B0] mt-1">Select a category to view, add, or edit its articles.</p>
+        </div>
+
+        <div className="flex gap-3 flex-wrap">
+          {allCatTitles.map(title => (
+            <button
+              key={title}
+              onClick={() => handleSelectArticleCat(articleCatTitle === title ? '' : title)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${articleCatTitle === title ? 'bg-[#FFB300] text-[#0A192F] border-[#FFB300]' : 'bg-[#112240] text-[#8892B0] border-white/10 hover:border-[#FFB300]/40'}`}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+
+        {articleCatTitle && (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-[#8892B0]">
+                {loadingPosts ? 'Loading…' : `${catPosts.length} article(s) in "${articleCatTitle}"`}
+              </span>
+              {!isAddingArticle && (
+                <button
+                  onClick={() => { setIsAddingArticle(true); setEditingArticleId(null); setArticleForm({ title: '', slug: '', excerpt: '', content: '', coverImage: '', readTime: '5 min', author: 'Vida Auto', tags: '' }); }}
+                  className="flex items-center gap-1 px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]"
+                >
+                  <Plus className="w-4 h-4" /> Add Article
+                </button>
+              )}
+            </div>
+
+            {isAddingArticle && (
+              <form onSubmit={handleSaveArticle} className="bg-[#0A192F] border border-white/5 rounded-xl p-5 space-y-3">
+                <h4 className="text-sm font-semibold text-[#FFB300]">{editingArticleId ? 'Edit Article' : 'New Article'} — {articleCatTitle}</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Title *</label>
+                    <input required type="text" value={articleForm.title} onChange={e => setArticleForm({ ...articleForm, title: e.target.value })} className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Slug (URL, auto if empty)</label>
+                    <input type="text" value={articleForm.slug} onChange={e => setArticleForm({ ...articleForm, slug: e.target.value })} placeholder="my-article-slug" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Read Time</label>
+                    <input type="text" value={articleForm.readTime} onChange={e => setArticleForm({ ...articleForm, readTime: e.target.value })} placeholder="5 min" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Tags (comma-separated)</label>
+                    <input type="text" value={articleForm.tags} onChange={e => setArticleForm({ ...articleForm, tags: e.target.value })} placeholder="moq, negotiation" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Cover Image URL</label>
+                    <input type="text" value={articleForm.coverImage} onChange={e => setArticleForm({ ...articleForm, coverImage: e.target.value })} placeholder="https://…" className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#8892B0] mb-1">Author</label>
+                    <input type="text" value={articleForm.author} onChange={e => setArticleForm({ ...articleForm, author: e.target.value })} className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-[#8892B0] mb-1">Excerpt (short summary)</label>
+                    <textarea value={articleForm.excerpt} onChange={e => setArticleForm({ ...articleForm, excerpt: e.target.value })} rows={2} className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-[#8892B0] mb-1">Content (HTML)</label>
+                    <textarea value={articleForm.content} onChange={e => setArticleForm({ ...articleForm, content: e.target.value })} rows={10} className="w-full px-3 py-2 bg-[#112240] border border-white/10 text-white text-sm rounded-md focus:outline-none focus:border-[#FFB300]/50 font-mono text-xs" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="submit" className="px-5 py-2 bg-[#FFB300] text-[#0A192F] rounded-md text-sm font-medium hover:bg-[#FFCA28]">Save Article</button>
+                  <button type="button" onClick={() => { setIsAddingArticle(false); setEditingArticleId(null); }} className="px-5 py-2 border border-white/10 text-[#8892B0] rounded-md text-sm hover:bg-white/5">Cancel</button>
+                </div>
+              </form>
+            )}
+
+            {!loadingPosts && catPosts.length === 0 && !isAddingArticle && (
+              <div className="text-center py-8 text-[#8892B0] border-2 border-dashed border-white/5 rounded-xl text-sm">
+                No articles in this category yet. Click "Add Article" to write one.
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {catPosts.map((post: any) => (
+                <div key={post.id} className="bg-[#0A192F] border border-white/5 rounded-lg p-4 flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-[#E6F1FF] truncate">{post.title}</div>
+                    <div className="text-xs text-[#8892B0] mt-0.5 truncate">{post.excerpt || '(no excerpt)'}</div>
+                    <div className="text-xs text-[#8892B0]/50 mt-0.5">{post.publishedAt?.split('T')[0]} · {post.readTime}</div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => handleEditArticle(post)} className="p-1.5 text-[#8892B0] hover:text-[#FFB300] transition-colors"><Edit className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteArticle(post.id)} className="p-1.5 text-[#8892B0] hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {isSaving && (
