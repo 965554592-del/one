@@ -1,132 +1,68 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 interface LazyVideoProps {
   src: string;
   className?: string;
   style?: React.CSSProperties;
   poster?: string;
-  /** Preload strategy when video is in viewport. Default: 'metadata' */
+  /** @deprecated Videos now use click-to-play; kept for API compatibility */
   preload?: 'none' | 'metadata' | 'auto';
-  /** Load video only when it enters viewport. Default: true */
+  /** @deprecated Videos now use click-to-play; kept for API compatibility */
   lazy?: boolean;
-  /** Root margin for IntersectionObserver. Default: '200px' (start loading slightly before visible) */
+  /** @deprecated Videos now use click-to-play; kept for API compatibility */
   rootMargin?: string;
 }
 
+const posterStyle = (poster?: string): React.CSSProperties =>
+  poster
+    ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : { backgroundColor: '#112240' };
+
 /**
- * Lazy-loaded background video component.
+ * Click-to-play background video component.
  *
- * Renders a single element (no wrapper div) to avoid positioning conflicts.
- * - Before visible: renders a placeholder <div> with poster as background
- * - After visible: renders a <video> element with native poster attribute
- *
- * Performance optimizations:
- * - Uses IntersectionObserver to defer video loading until near viewport
- * - Defaults to preload="metadata" instead of "auto"
- * - Uses native <video poster=""> for instant visual feedback
- * - Auto-plays with low CPU overhead (muted + playsinline)
+ * Shows poster image with a play button overlay by default.
+ * Video is loaded and played only after the user clicks — saving bandwidth on
+ * all devices, especially mobile.
  */
-/** Returns true if we should skip video on this device/connection */
-function shouldSkipVideo(): boolean {
-  if (typeof window === 'undefined') return true;
-  const isMobile = window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  const conn = (navigator as any).connection;
-  const isSlow = conn && (conn.saveData || /2g|slow-2g/.test(conn.effectiveType || ''));
-  return isMobile || isSlow;
-}
-
-export default function LazyVideo({
-  src,
-  className = '',
-  style,
-  poster,
-  preload = 'metadata',
-  lazy = true,
-  rootMargin = '200px',
-}: LazyVideoProps) {
-  const ref = useRef<HTMLDivElement | HTMLVideoElement>(null);
-  const [isVisible, setIsVisible] = useState(!lazy);
+export default function LazyVideo({ src, className = '', style, poster }: LazyVideoProps) {
+  const [playing, setPlaying] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const skipVideo = shouldSkipVideo();
 
-  useEffect(() => {
-    if (!lazy) return;
-    const el = ref.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [lazy, rootMargin]);
-
-  // Mobile / save-data: skip video entirely, show poster image only
-  if (skipVideo) {
-    return (
-      <div
-        className={className}
-        style={{
-          ...style,
-          ...(poster
-            ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-            : { backgroundColor: '#112240' }),
-        }}
-      />
-    );
-  }
-
-  // Not yet in viewport: show placeholder with poster image
-  if (!isVisible) {
-    return (
-      <div
-        ref={ref as React.RefObject<HTMLDivElement>}
-        className={className}
-        style={{
-          ...style,
-          ...(poster
-            ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-            : { backgroundColor: '#112240' }),
-        }}
-      />
-    );
-  }
-
-  // Decode error: silently fall back to poster image
   if (hasError) {
+    return <div className={className} style={{ ...style, ...posterStyle(poster) }} />;
+  }
+
+  if (!playing) {
     return (
       <div
-        ref={ref as React.RefObject<HTMLDivElement>}
-        className={className}
-        style={{
-          ...style,
-          ...(poster
-            ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-            : { backgroundColor: '#112240' }),
-        }}
-      />
+        className={`${className} relative cursor-pointer group`}
+        style={{ ...style, ...posterStyle(poster) }}
+        onClick={() => setPlaying(true)}
+        role="button"
+        aria-label="Play video"
+      >
+        <div className="absolute inset-0 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/30 group-hover:ring-white/70 group-hover:scale-110 transition-all duration-200">
+            <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5 ml-0.5" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+        </div>
+      </div>
     );
   }
 
-  // In viewport: render video element directly (no wrapper)
   return (
     <video
-      ref={ref as React.RefObject<HTMLVideoElement>}
       src={src}
       poster={poster}
       autoPlay
       loop
       muted
       playsInline
-      preload={preload}
-      onError={() => { console.warn('[LazyVideo] Decode error, falling back to poster:', src); setHasError(true); }}
+      preload="auto"
+      onError={() => setHasError(true)}
       className={className}
       style={style}
     />
