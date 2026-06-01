@@ -11,6 +11,10 @@ export default function Footer() {
   const { siteSettings } = useStore();
   const [contacts, setContacts] = useState<any[]>([]);
 
+  const rawPhone = siteSettings?.phone || "861234567890";
+  const whatsappNumber = rawPhone.replace(/[^\d+]/g, '');
+  const whatsappUrl = siteSettings?.whatsappLink || `https://wa.me/${whatsappNumber}`;
+
   useEffect(() => {
     const q = query(collection(db, 'contacts'), orderBy('order'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -106,15 +110,36 @@ export default function Footer() {
           <div className="flex flex-col items-center">
             <span className="text-sm font-bold text-[#E6F1FF] uppercase tracking-wider mb-4">{t('footer.whatsapp_title')}</span>
             {siteSettings?.whatsappQrUrl ? (
-              <div className="p-2 bg-white rounded-lg">
-                <img src={siteSettings.whatsappQrUrl} alt="WhatsApp QR" className="w-24 h-24 object-contain" />
-              </div>
+              <a 
+                href={whatsappUrl} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                title="Click to Chat on WhatsApp"
+                className="p-2 bg-white rounded-lg hover:scale-105 transition-transform"
+              >
+                <img 
+                  src={siteSettings.whatsappQrUrl} 
+                  alt="WhatsApp QR" 
+                  className="w-24 h-24 object-contain" 
+                  referrerPolicy="no-referrer"
+                />
+              </a>
             ) : (
               <div className="w-24 h-24 bg-[#112240] rounded-lg flex items-center justify-center border border-white/5">
                 <span className="text-[10px] text-center px-2">{t('footer.qr_not_set')}</span>
               </div>
             )}
-            <p className="mt-2 text-[10px]">{t('footer.whatsapp_scan')}</p>
+            <p className="mt-2 text-[10px] text-center">{t('footer.whatsapp_scan', 'Scan or Click to Chat')}</p>
+            
+            <a 
+              href={whatsappUrl} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="mt-3 md:hidden inline-flex items-center px-4 py-2 bg-[#25D366] hover:bg-[#128C7E] text-white text-xs font-bold rounded-lg transition-colors shadow-md"
+            >
+              <MessageSquare className="w-4 h-4 mr-1.5" />
+              Chat on WhatsApp
+            </a>
           </div>
 
           {/* Social & Share */}

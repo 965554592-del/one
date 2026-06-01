@@ -122,36 +122,89 @@ export default function ProductDetail() {
     }
   };
 
-  const handleDownload = async (qual: any) => {
-    if (!auth.currentUser) return;
-
-    // Check if profile is complete
+  const [hasGuestProfile, setHasGuestProfile] = useState(() => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      const data = userDoc.data();
-      if (!data?.company || !data?.phone) {
+      return !!localStorage.getItem('vida_guest_profile');
+    } catch {
+      return false;
+    }
+  });
+
+  const handleDownload = async (qual: any) => {
+    if (auth.currentUser) {
+      // Check if profile is complete
+      try {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        const data = userDoc.data();
+        if (!data?.company || !data?.phone) {
+          setPendingDownloadQual(qual);
+          setShowProfileGate(true);
+          return;
+        }
+      } catch (err) {
+        console.error('[ProductDetail] Profile check failed:', err);
+      }
+    } else {
+      // Guest user check
+      const cached = localStorage.getItem('vida_guest_profile');
+      if (!cached) {
         setPendingDownloadQual(qual);
         setShowProfileGate(true);
         return;
       }
-    } catch (err) {
-      console.error('[ProductDetail] Profile check failed:', err);
     }
 
     await executeDownload(qual);
   };
 
   const executeDownload = async (qual: any) => {
-    if (!auth.currentUser) return;
     setDownloading(qual.id);
     try {
       const now = new Date().toISOString();
-      await addDoc(collection(db, 'userDownloads'), {
-        userId: auth.currentUser.uid,
-        email: auth.currentUser.email || '',
-        pdfId: qual.id,
-        timestamp: now,
-      });
+      let profile: any = {};
+      let email = '';
+      let userId = '';
+
+      if (auth.currentUser) {
+        userId = auth.currentUser.uid;
+        email = auth.currentUser.email || '';
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', userId));
+          profile = userDocSnap.data() || {};
+        } catch {}
+
+        // Write to userDownloads for authenticated users
+        await addDoc(collection(db, 'userDownloads'), {
+          userId,
+          email,
+          pdfId: qual.id,
+          timestamp: now,
+        });
+      } else {
+        // Read guest profile from localStorage
+        try {
+          const cached = localStorage.getItem('vida_guest_profile');
+          if (cached) {
+            profile = JSON.parse(cached);
+            email = profile.email || '';
+            userId = 'guest_' + email.replace(/[^a-zA-Z0-9]/g, '_');
+            setHasGuestProfile(true);
+          }
+        } catch {}
+
+        // For guests, write to 'messages' (which allows unauthenticated writes) so it logs as an inquiry
+        await addDoc(collection(db, 'messages'), {
+          name: profile.name || email.split('@')[0] || 'Guest Reader',
+          email: email || 'guest@example.com',
+          message: `[PDF Download] User downloaded document: ${qual.title || qual.fileName || qual.id}${product ? ` for product: ${product.name} (SKU: ${product.sku})` : ''}`,
+          status: 'new',
+          createdAt: now,
+          company: profile.company || '',
+          phone: profile.phone || '',
+          country: profile.country || '',
+          partNeed: 'Technical PDF Catalog Download',
+        });
+      }
 
       // Track PDF download event (Meta Pixel + GA4)
       trackEvent('Download', {
@@ -165,14 +218,12 @@ export default function ProductDetail() {
         item_name: product?.name,
       });
 
-      // Push download event to CRM with user profile info
+      // Push download event to CRM with user/guest profile info
       if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
-        const userDocSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        const profile = userDocSnap.data() || {};
         pushToCRM(
           {
-            name: profile.displayName || auth.currentUser.displayName || '',
-            email: auth.currentUser.email || '',
+            name: profile.displayName || profile.name || auth.currentUser?.displayName || email.split('@')[0] || '',
+            email: email,
             phone: profile.phone || '',
             company: profile.company || '',
             country: profile.country || '',
@@ -194,7 +245,7 @@ export default function ProductDetail() {
       
       setDownloading(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'userDownloads');
+      console.error('[executeDownload] Error:', error);
       setDownloading(null);
       alert(t('common.download_failed'));
     }
@@ -406,21 +457,19 @@ export default function ProductDetail() {
                         <FileText className="w-4 h-4 text-[#FFB300] shrink-0" />
                         <span className="text-sm text-white truncate font-medium">{t('product.manual_catalog', 'Product Manual/Catalog')}</span>
                       </div>
-                      {user ? (
-                        <button 
-                          onClick={() => handleDownload({ id: 'product-manual', title: product.name + ' Manual', url: product.catalogUrl })}
-                          disabled={!!downloading}
-                          className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
-                        >
-                          {downloading === 'product-manual' ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <FileText className="w-4 h-4" />
-                          )}
-                        </button>
-                      ) : (
-                        <Lock className="w-4 h-4 text-[#8892B0]" />
-                      )}
+                      <button 
+                        onClick={() => handleDownload({ id: 'product-manual', title: product.name + ' Manual', url: product.catalogUrl })}
+                        disabled={!!downloading}
+                        className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
+                      >
+                        {downloading === 'product-manual' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (!user && !hasGuestProfile) ? (
+                          <Lock className="w-4 h-4 text-[#8892B0] hover:text-[#FFB300]" />
+                        ) : (
+                          <FileText className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
                   )}
 
@@ -430,21 +479,19 @@ export default function ProductDetail() {
                         <FileText className="w-4 h-4 text-[#FFB300] shrink-0" />
                         <span className="text-sm text-white truncate">{qual.title}</span>
                       </div>
-                      {user ? (
-                        <button 
-                          onClick={() => handleDownload(qual)}
-                          disabled={!!downloading}
-                          className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
-                        >
-                          {downloading === qual.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <FileText className="w-4 h-4" />
-                          )}
-                        </button>
-                      ) : (
-                        <Lock className="w-4 h-4 text-[#8892B0]" />
-                      )}
+                      <button 
+                        onClick={() => handleDownload(qual)}
+                        disabled={!!downloading}
+                        className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
+                      >
+                        {downloading === qual.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (!user && !hasGuestProfile) ? (
+                          <Lock className="w-4 h-4 text-[#8892B0] hover:text-[#FFB300]" />
+                        ) : (
+                          <FileText className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
                   ))}
 

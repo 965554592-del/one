@@ -11,6 +11,8 @@ interface Props {
 
 export default function ProfileGateModal({ onComplete, onClose }: Props) {
   const { t } = useTranslation();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('');
@@ -18,16 +20,28 @@ export default function ProfileGateModal({ onComplete, onClose }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser) return;
     setSaving(true);
     try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      await setDoc(userRef, {
-        company: company.trim(),
-        phone: phone.trim(),
-        country: country.trim(),
-        profileCompleted: true,
-      }, { merge: true });
+      if (auth.currentUser) {
+        const userRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userRef, {
+          company: company.trim(),
+          phone: phone.trim(),
+          country: country.trim(),
+          profileCompleted: true,
+        }, { merge: true });
+      } else {
+        // Save as guest profile in localStorage
+        const guestProfile = {
+          name: name.trim(),
+          email: email.trim(),
+          company: company.trim(),
+          phone: phone.trim(),
+          country: country.trim(),
+          profileCompleted: true,
+        };
+        localStorage.setItem('vida_guest_profile', JSON.stringify(guestProfile));
+      }
       onComplete();
     } catch (err) {
       console.error('[ProfileGate] Failed to save:', err);
@@ -35,6 +49,8 @@ export default function ProfileGateModal({ onComplete, onClose }: Props) {
       setSaving(false);
     }
   };
+
+  const isGuest = !auth.currentUser;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
@@ -51,6 +67,36 @@ export default function ProfileGateModal({ onComplete, onClose }: Props) {
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isGuest && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">
+                  {t('profile_gate.name', 'Your Name')} *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full px-3 py-2 border border-white/10 bg-[#0A192F] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#8892B0] mb-1">
+                  {t('profile_gate.email', 'Email Address')} *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="e.g. john@example.com"
+                  className="w-full px-3 py-2 border border-white/10 bg-[#0A192F] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                />
+              </div>
+            </>
+          )}
           <div>
             <label className="block text-sm font-medium text-[#8892B0] mb-1">
               {t('profile_gate.company', 'Company Name')} *
