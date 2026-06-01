@@ -72,7 +72,7 @@ export default function LazyVideo({ src, className = '', style, poster }: LazyVi
     // Has poster image: use CSS background
     return (
       <div
-        className={`${className} relative cursor-pointer group`}
+        className={`${className} cursor-pointer group`}
         style={{
           ...style,
           backgroundImage: `url(${poster})`,
@@ -109,7 +109,7 @@ function VideoThumbnail({ src, className, style, onPlay, onError }: {
 
   return (
     <div
-      className={`${className} relative cursor-pointer group overflow-hidden`}
+      className={`${className} cursor-pointer group overflow-hidden`}
       style={style}
       onClick={onPlay}
       role="button"
