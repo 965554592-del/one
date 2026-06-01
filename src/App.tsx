@@ -46,14 +46,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Pre-populate siteSettings from cache so images render instantly on repeat visits.
+    // Firestore listener below will silently refresh the data in background.
+    try {
+      const cached = localStorage.getItem('vida_siteSettings');
+      if (cached) setSiteSettings(JSON.parse(cached));
+    } catch {}
+
     // 1. Fetch static settings once (or use onSnapshot for settings too)
     const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as any;
         setSiteSettings(data);
-        // Cache hero image URL so subsequent visits can preload it via the
-        // bootstrap script in index.html (massive LCP improvement on repeat visits).
         try {
+          localStorage.setItem('vida_siteSettings', JSON.stringify(data));
           if (data.heroBgUrl) localStorage.setItem('heroBgUrl', data.heroBgUrl);
           if (data.heroVideoUrl) localStorage.setItem('heroVideoUrl', data.heroVideoUrl);
           else localStorage.removeItem('heroVideoUrl');
