@@ -54,6 +54,46 @@ async function loadProductIds() {
   }
 }
 
+/** Fetch siteSettings from Firestore (Admin SDK), strip sensitive keys for public injection */
+async function fetchPublicSiteSettings() {
+  const STRIP = new Set(['resendApiKey', 'smtpPass', 'smtpUser', 'smtpHost', 'smtpPort', 'smtpSecure',
+    'fbCapiAccessToken', 'fbCapiTestCode', 'crmWebhookUrl', 'crmWebhookHeaders', 'notifyEmails']);
+  try {
+    const db = getDb();
+    const snap = await db.collection('settings').doc('global').get();
+    if (!snap.exists) return null;
+    const data = snap.data();
+    const safe = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (!STRIP.has(k)) safe[k] = v;
+    }
+    return safe;
+  } catch (e) {
+    console.warn('[prerender] fetchPublicSiteSettings failed:', e?.message);
+    return null;
+  }
+}
+
+/** Fetch top N products (id + first image URL) for preload injection */
+async function fetchTopProductImages(limit = 30) {
+  try {
+    const db = getDb();
+    const snap = await db.collection('products').limit(limit).get();
+    return snap.docs
+      .map(d => { const data = d.data(); return data.imageUrls?.[0] || data.imageUrl || null; })
+      .filter(Boolean);
+  } catch (e) {
+    console.warn('[prerender] fetchTopProductImages failed:', e?.message);
+    return [];
+  }
+}
+
+/** Inject a string just before </head> */
+function injectBeforeHeadClose(html, injection) {
+  return html.includes('</head>') ? html.replace('</head>', `${injection}
+</head>`) : html + injection;
+}
+
 async function loadBlogSlugs() {
   try {
     const db = getDb();
@@ -241,8 +281,13 @@ async function main() {
     throw new Error('dist/index.html not found. Run vite build first.');
   });
 
-  const productIds = await loadProductIds();
-  const blogSlugs = await loadBlogSlugs();
+  // Fetch data for injection (runs in parallel with route loading)
+  const [productIds, blogSlugs, siteSettings, topProductImages] = await Promise.all([
+    loadProductIds(),
+    loadBlogSlugs(),
+    fetchPublicSiteSettings(),
+    fetchTopProductImages(30),
+  ]);
   const productRoutes = productIds.map((id) => `/products/${id}`);
   const blogRoutes = blogSlugs.map((slug) => `/blog/${slug}`);
   const allRoutes = [...STATIC_ROUTES, ...productRoutes, ...blogRoutes];
@@ -273,6 +318,42 @@ async function main() {
   } finally {
     await browser.close();
     server.close();
+  }
+
+  // ── Post-processing: inject preload data into key pages ──────────────────
+
+  // 1. Home page: embed __SITE_SETTINGS__ + preload hero image
+  if (siteSettings) {
+    const homePath = path.join(distDir, 'index.html');
+    try {
+      let html = await fs.readFile(homePath, 'utf8');
+      const escaped = JSON.stringify(siteSettings).replace(/<\/script>/gi, '<\\/script>');
+      html = injectBeforeHeadClose(html, `<script>window.__SITE_SETTINGS__=${escaped};</script>`);
+      if (siteSettings.heroBgUrl) {
+        html = injectBeforeHeadClose(html, `<link rel="preload" as="image" href="${siteSettings.heroBgUrl}">`);
+      }
+      await fs.writeFile(homePath, html, 'utf8');
+      console.log('[prerender] ✓ injected __SITE_SETTINGS__ + hero preload into home page');
+    } catch (e) {
+      console.warn('[prerender] Home page injection failed:', e?.message);
+    }
+  }
+
+  // 2. Products page: preload first 30 product images
+  if (topProductImages.length > 0) {
+    const productsPath = path.join(distDir, 'products', 'index.html');
+    try {
+      let html = await fs.readFile(productsPath, 'utf8');
+      const tags = topProductImages
+        .slice(0, 30)
+        .map(url => `<link rel="preload" as="image" href="${url}">`)
+        .join('\n');
+      html = injectBeforeHeadClose(html, tags);
+      await fs.writeFile(productsPath, html, 'utf8');
+      console.log(`[prerender] ✓ injected ${topProductImages.length} product image preloads into products page`);
+    } catch (e) {
+      console.warn('[prerender] Products page injection failed:', e?.message);
+    }
   }
 }
 

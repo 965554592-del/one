@@ -46,12 +46,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Pre-populate siteSettings from cache so images render instantly on repeat visits.
-    // Firestore listener below will silently refresh the data in background.
-    try {
-      const cached = localStorage.getItem('vida_siteSettings');
-      if (cached) setSiteSettings(JSON.parse(cached));
-    } catch {}
+    // Priority: window.__SITE_SETTINGS__ (prerendered HTML) > localStorage > Firestore.
+    // The store already reads __SITE_SETTINGS__ synchronously at init time (useStore.ts).
+    // Only fall back to localStorage if no preloaded data was injected.
+    if (!(window as any).__SITE_SETTINGS__) {
+      try {
+        const cached = localStorage.getItem('vida_siteSettings');
+        if (cached) setSiteSettings(JSON.parse(cached));
+      } catch {}
+    }
 
     // 1. Fetch static settings once (or use onSnapshot for settings too)
     const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'global'), (docSnap) => {

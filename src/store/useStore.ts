@@ -111,11 +111,14 @@ interface AppState {
   setSiteSettings: (settings: SiteSettings) => void;
 }
 
+const _injected: SiteSettings | null =
+  typeof window !== 'undefined' ? (window as any).__SITE_SETTINGS__ ?? null : null;
+
 export const useStore = create<AppState>((set) => ({
   user: null,
   userRole: null,
   isAuthReady: false,
-  siteSettings: { 
+  siteSettings: _injected ?? { 
     logoUrl: '', 
     statsBgUrl: '', 
     heroVideoUrl: '', 
