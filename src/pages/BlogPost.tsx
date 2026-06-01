@@ -127,7 +127,7 @@ export default function BlogPost() {
 
       {post.coverImage && (
         <div className="rounded-xl overflow-hidden mb-8 max-h-[400px]">
-          <img src={post.coverImage} alt={post.title} className="w-full h-full object-cover" />
+          <img src={post.coverImage} alt={post.title} loading="lazy" className="w-full h-full object-cover" />
         </div>
       )}
 

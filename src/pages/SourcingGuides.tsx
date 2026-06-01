@@ -16,10 +16,17 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   trends:    ['trend', 'industry', 'market', 'ev', 'electric', 'compliance', 'news'],
 };
 
+const CACHE_KEY_POST_COUNTS = 'vida_sourcing_post_counts';
+
 const SourcingGuides: React.FC = () => {
   const { t } = useTranslation();
   const { siteSettings } = useStore();
-  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
+  const [postCounts, setPostCounts] = useState<Record<string, number>>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY_POST_COUNTS);
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -35,6 +42,7 @@ const SourcingGuides: React.FC = () => {
           });
         });
         setPostCounts(counts);
+        try { localStorage.setItem(CACHE_KEY_POST_COUNTS, JSON.stringify(counts)); } catch {}
       } catch (e) {
         console.error('[SourcingGuides] failed to fetch post counts', e);
       }

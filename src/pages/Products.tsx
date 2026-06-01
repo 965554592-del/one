@@ -37,11 +37,24 @@ interface Category {
   order: number;
 }
 
+const CACHE_KEY_PRODUCTS = 'vida_products';
+const CACHE_KEY_CATEGORIES = 'vida_categories';
+
 export default function Products() {
   const { t } = useTranslation();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY_PRODUCTS);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [categories, setCategories] = useState<Category[]>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY_CATEGORIES);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [loading, setLoading] = useState(products.length === 0 || categories.length === 0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [selectedParentCategory, setSelectedParentCategory] = useState('');
@@ -87,8 +100,14 @@ export default function Products() {
           getDocs(query(collection(db, 'categories'), orderBy('order', 'asc')))
         ]);
         
-        setProducts(productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[]);
-        setCategories(categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Category[]);
+        const freshProducts = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
+        const freshCategories = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Category[];
+        setProducts(freshProducts);
+        setCategories(freshCategories);
+        try {
+          localStorage.setItem(CACHE_KEY_PRODUCTS, JSON.stringify(freshProducts));
+          localStorage.setItem(CACHE_KEY_CATEGORIES, JSON.stringify(freshCategories));
+        } catch {}
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
