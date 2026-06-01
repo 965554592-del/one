@@ -18,10 +18,32 @@ interface BlogPost {
   author: string;
 }
 
+const CACHE_KEY = 'vida_blogPosts';
+
+function SkeletonCard() {
+  return (
+    <div className="bg-[#112240] rounded-xl border border-white/5 overflow-hidden flex flex-col animate-pulse">
+      <div className="h-48 bg-white/5" />
+      <div className="p-5 flex flex-col gap-3">
+        <div className="h-3 w-24 bg-white/10 rounded" />
+        <div className="h-5 w-full bg-white/10 rounded" />
+        <div className="h-5 w-3/4 bg-white/10 rounded" />
+        <div className="h-3 w-full bg-white/5 rounded mt-1" />
+        <div className="h-3 w-2/3 bg-white/5 rounded" />
+      </div>
+    </div>
+  );
+}
+
 export default function Blog() {
   const { t } = useTranslation();
-  const [posts, setPosts] = useState<BlogPost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<BlogPost[]>(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [loading, setLoading] = useState(posts.length === 0);
   const [searchParams] = useSearchParams();
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
 
@@ -29,7 +51,9 @@ export default function Blog() {
     const fetchPosts = async () => {
       try {
         const snap = await getDocs(query(collection(db, 'blogPosts'), orderBy('publishedAt', 'desc')));
-        setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() } as BlogPost)));
+        const fresh = snap.docs.map(d => ({ id: d.id, ...d.data() } as BlogPost));
+        setPosts(fresh);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(fresh)); } catch {}
       } catch (e) {
         console.error('Error fetching blog posts:', e);
       } finally {
@@ -99,7 +123,9 @@ export default function Blog() {
       )}
 
       {loading ? (
-        <div className="text-center py-20 text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1,2,3].map(i => <SkeletonCard key={i} />)}
+        </div>
       ) : filteredPosts.length === 0 ? (
         <div className="text-center py-20">
           <BookOpen className="w-16 h-16 text-[#8892B0]/30 mx-auto mb-4" />
@@ -115,7 +141,7 @@ export default function Blog() {
             >
               {post.coverImage ? (
                 <div className="h-48 overflow-hidden">
-                  <img src={post.coverImage} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <img src={post.coverImage} alt={post.title} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                 </div>
               ) : (
                 <div className="h-48 bg-gradient-to-br from-[#FFB300]/10 to-[#0A192F] flex items-center justify-center">
