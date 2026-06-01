@@ -140,7 +140,7 @@ export default function About() {
         <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden mb-8">
           <div className="aspect-video bg-[#0A192F] relative overflow-hidden">
             {siteSettings?.storyVideoUrl ? (
-              <LazyVideo src={siteSettings.storyVideoUrl} poster={siteSettings?.storyBgUrl} className="w-full h-full object-cover object-center" lazy={false} preload="auto" />
+              <LazyVideo src={siteSettings.storyVideoUrl} poster={siteSettings?.storyBgUrl} className="w-full h-full object-cover object-center" preload="metadata" />
             ) : (
               <img src={siteSettings.storyBgUrl} alt="About" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             )}

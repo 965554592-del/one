@@ -26,6 +26,15 @@ interface LazyVideoProps {
  * - Uses native <video poster=""> for instant visual feedback
  * - Auto-plays with low CPU overhead (muted + playsinline)
  */
+/** Returns true if we should skip video on this device/connection */
+function shouldSkipVideo(): boolean {
+  if (typeof window === 'undefined') return true;
+  const isMobile = window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const conn = (navigator as any).connection;
+  const isSlow = conn && (conn.saveData || /2g|slow-2g/.test(conn.effectiveType || ''));
+  return isMobile || isSlow;
+}
+
 export default function LazyVideo({
   src,
   className = '',
@@ -38,6 +47,7 @@ export default function LazyVideo({
   const ref = useRef<HTMLDivElement | HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(!lazy);
   const [hasError, setHasError] = useState(false);
+  const skipVideo = shouldSkipVideo();
 
   useEffect(() => {
     if (!lazy) return;
@@ -57,6 +67,21 @@ export default function LazyVideo({
     observer.observe(el);
     return () => observer.disconnect();
   }, [lazy, rootMargin]);
+
+  // Mobile / save-data: skip video entirely, show poster image only
+  if (skipVideo) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          ...(poster
+            ? { backgroundImage: `url(${poster})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : { backgroundColor: '#112240' }),
+        }}
+      />
+    );
+  }
 
   // Not yet in viewport: show placeholder with poster image
   if (!isVisible) {
