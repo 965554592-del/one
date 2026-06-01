@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface LazyVideoProps {
   src: string;
@@ -88,21 +88,40 @@ export default function LazyVideo({ src, className = '', style, poster }: LazyVi
     );
   }
 
-  // No poster: use video preload="metadata" to display the first frame
+  // No poster: use video preload="metadata" + force first frame (Safari fix)
+  return <VideoThumbnail src={src} className={className} style={style} onPlay={() => setPlaying(true)} onError={() => setHasError(true)} />;
+}
+
+/** Renders a paused video showing its first frame as thumbnail (works on Safari too). */
+function VideoThumbnail({ src, className, style, onPlay, onError }: {
+  src: string; className: string; style?: React.CSSProperties;
+  onPlay: () => void; onError: () => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const seek = () => { v.currentTime = 0.001; };
+    v.addEventListener('loadedmetadata', seek);
+    return () => v.removeEventListener('loadedmetadata', seek);
+  }, [src]);
+
   return (
     <div
       className={`${className} relative cursor-pointer group overflow-hidden`}
       style={style}
-      onClick={() => setPlaying(true)}
+      onClick={onPlay}
       role="button"
       aria-label="Play video"
     >
       <video
+        ref={ref}
         src={src}
         muted
         playsInline
         preload="metadata"
-        onError={() => setHasError(true)}
+        onError={onError}
         className="absolute inset-0 w-full h-full object-cover"
       />
       <PlayOverlay />
