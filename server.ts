@@ -933,6 +933,88 @@ async function startServer() {
     }
   });
 
+  // ─── n8n Publishing Queue Proxy ───────────────────────────
+  // The CMS admin "Push to n8n Publishing Queue" button POSTs an article
+  // (title, content, videoUrl, etc.) here. We forward it to the n8n webhook
+  // (kept server-side to avoid CORS + hide the internal URL). Configure the
+  // target via env N8N_PUBLISH_WEBHOOK_URL.
+  app.post("/api/n8n/push-publish", async (req, res) => {
+    const target = (process.env.N8N_PUBLISH_WEBHOOK_URL || "").trim();
+    if (!target) {
+      console.error("[n8n/push] N8N_PUBLISH_WEBHOOK_URL is not configured.");
+      return res.status(500).json({ success: false, error: "N8N_PUBLISH_WEBHOOK_URL not configured on the server." });
+    }
+
+    const payload = req.body || {};
+    if (!payload.title) {
+      return res.status(400).json({ success: false, error: "Missing title" });
+    }
+
+    // Build an absolute, publicly reachable video URL so n8n (and the social
+    // platforms) can download it. Relative "/uploads/..." paths are prefixed
+    // with PUBLIC_BASE_URL when available.
+    if (typeof payload.videoUrl === "string" && payload.videoUrl.startsWith("/") && publicBaseUrl) {
+      payload.videoUrl = `${publicBaseUrl}${payload.videoUrl}`;
+    }
+
+    try {
+      const r = await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const text = await r.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+      if (!r.ok) {
+        console.error(`[n8n/push] Webhook returned ${r.status}: ${text.slice(0, 300)}`);
+        return res.status(502).json({ success: false, error: `n8n webhook returned ${r.status}`, details: data });
+      }
+
+      console.log(`[n8n/push] Forwarded "${payload.title}" to n8n (${r.status}).`);
+      res.json({ success: true, forwarded: true, n8n: data });
+    } catch (err: any) {
+      console.error("[n8n/push] Forward failed:", err);
+      res.status(502).json({ success: false, error: err.message || "Failed to reach n8n webhook" });
+    }
+  });
+
+  // ─── Video Cleanup Webhook (called by n8n after publishing) ────────
+  // n8n POSTs { videoUrl } once a video has been published to all platforms.
+  // We delete the temporary file from the local /uploads disk. Firebase
+  // Storage URLs are ignored here (they require authenticated admin deletion).
+  // Paste this URL into n8n: https://<your-domain>/api/webhooks/delete-video
+  app.post("/api/webhooks/delete-video", (req, res) => {
+    const { videoUrl } = req.body || {};
+    console.log(`[Webhook/DeleteVideo] Request: ${videoUrl}`);
+
+    if (!videoUrl || typeof videoUrl !== "string") {
+      return res.status(400).json({ success: false, error: "Missing videoUrl" });
+    }
+
+    // Only local /uploads/<file> assets are deletable without auth.
+    const match = videoUrl.match(/\/uploads\/([^/?#]+)$/);
+    if (!match) {
+      console.warn(`[Webhook/DeleteVideo] Skipped non-uploads URL: ${videoUrl}`);
+      return res.json({ success: true, skipped: true, reason: "Not a server /uploads asset" });
+    }
+
+    const filePath = path.join(uploadsDir, match[1]);
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`[Webhook/DeleteVideo] Deleted: ${match[1]}`);
+        return res.json({ success: true, deleted: true, file: match[1] });
+      } catch (error: any) {
+        console.error(`[Webhook/DeleteVideo] Unlink failed for ${match[1]}:`, error);
+        return res.status(500).json({ success: false, error: "Failed to delete file" });
+      }
+    }
+    console.warn(`[Webhook/DeleteVideo] File already gone: ${match[1]}`);
+    res.json({ success: true, deleted: false, reason: "File not found (already removed)" });
+  });
+
   // Comprehensive catch-all error handler for JSON responses
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("[SERVER] Unhandled Error:", err);

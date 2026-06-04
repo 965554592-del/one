@@ -389,8 +389,10 @@ function BlogManager() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
   const [newPost, setNewPost] = useState({
-    title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: ''
+    title: '', slug: '', excerpt: '', content: '', coverImage: '', videoUrl: '', category: '', readTime: '', author: 'Vida Auto', tags: ''
   });
 
   const fetchPosts = async () => {
@@ -416,6 +418,7 @@ function BlogManager() {
         excerpt: newPost.excerpt,
         content: newPost.content,
         coverImage: newPost.coverImage,
+        videoUrl: newPost.videoUrl,
         category: newPost.category,
         readTime: newPost.readTime,
         author: newPost.author,
@@ -429,7 +432,7 @@ function BlogManager() {
       }
       setIsAdding(false);
       setEditingId(null);
-      setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: '' });
+      setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', videoUrl: '', category: '', readTime: '', author: 'Vida Auto', tags: '' });
       fetchPosts();
     } catch (error) {
       handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'blogPosts');
@@ -444,12 +447,64 @@ function BlogManager() {
       excerpt: post.excerpt || '',
       content: post.content || '',
       coverImage: post.coverImage || '',
+      videoUrl: post.videoUrl || '',
       category: post.category || '',
       readTime: post.readTime || '',
       author: post.author || 'Vida Auto',
       tags: (post.tags || []).join(', '),
     });
     setIsAdding(true);
+  };
+
+  // Infer the n8n product_key bucket from category / title keywords.
+  const inferProductKey = (category: string, title: string): string => {
+    const s = `${category} ${title}`.toLowerCase();
+    if (/mirror|glass|lens/.test(s)) return 'mirror';
+    if (/cover|housing|pc|pmma/.test(s)) return 'cover';
+    if (/bulb|led|hid|headlight|lamp/.test(s)) return 'bulbs';
+    return 'general';
+  };
+
+  // Push the current article (with optional self-uploaded video) into the
+  // n8n publishing queue. n8n distributes it to all social channels and then
+  // calls back /api/webhooks/delete-video to remove the temporary video file.
+  const handlePushToQueue = async () => {
+    if (!newPost.title) {
+      alert(t('admin.push_need_title', 'Please enter a title first.'));
+      return;
+    }
+    setPushing(true);
+    try {
+      const slug = newPost.slug || newPost.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const payload = {
+        title: newPost.title,
+        excerpt: newPost.excerpt,
+        content: newPost.content,
+        coverImage: newPost.coverImage,
+        videoUrl: newPost.videoUrl,
+        tags: newPost.tags.split(',').map((s: string) => s.trim()).filter(Boolean),
+        category: newPost.category,
+        productKey: inferProductKey(newPost.category, newPost.title),
+        slug,
+        blogId: editingId || '',
+        source: 'manual_cms',
+        pushedAt: new Date().toISOString(),
+      };
+      const res = await fetch(apiUrl('/api/n8n/push-publish'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || out?.success === false) {
+        throw new Error(out?.error || `HTTP ${res.status}`);
+      }
+      alert(t('admin.push_ok', '✅ Pushed to n8n publishing queue. The video will be auto-deleted after publishing.'));
+    } catch (err: any) {
+      alert(`${t('admin.push_failed', 'Push to queue failed')}: ${err?.message || ''}`);
+    } finally {
+      setPushing(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -467,7 +522,7 @@ function BlogManager() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.blog', 'Blog Management')}</h2>
-        <button onClick={() => { setIsAdding(true); setEditingId(null); setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', category: '', readTime: '', author: 'Vida Auto', tags: '' }); }} className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors">
+        <button onClick={() => { setIsAdding(true); setEditingId(null); setNewPost({ title: '', slug: '', excerpt: '', content: '', coverImage: '', videoUrl: '', category: '', readTime: '', author: 'Vida Auto', tags: '' }); }} className="flex items-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-medium transition-colors">
           <Plus className="w-4 h-4 mr-1" />{t('admin.add_post', 'Add Post')}
         </button>
       </div>
@@ -557,6 +612,66 @@ function BlogManager() {
               )}
             </div>
             <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[#8892B0] mb-1">
+                {t('admin.video', 'Video (for social publishing)')}
+                <span className="text-xs text-[#8892B0]/60 ml-2">— uploaded to a temporary URL; auto-deleted after n8n publishes</span>
+              </label>
+              <div className="flex gap-2 items-start">
+                <input
+                  type="text"
+                  value={newPost.videoUrl}
+                  onChange={e => setNewPost({ ...newPost, videoUrl: e.target.value })}
+                  placeholder="https://...  (or upload an .mp4)"
+                  className="flex-1 min-w-0 px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                />
+                <label className={`cursor-pointer px-3 py-2 bg-[#112240] border border-white/10 text-[#FFB300] rounded-md hover:bg-[#0A192F] transition-colors flex items-center shrink-0 text-sm ${videoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <Video className="w-4 h-4 mr-1" />
+                  {videoUploading ? t('admin.uploading', 'Uploading…') : t('admin.select_file', 'Upload')}
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept="video/mp4,video/quicktime,video/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setVideoUploading(true);
+                      try {
+                        if (newPost.videoUrl) await deleteFileFromServer(newPost.videoUrl);
+                        // Upload videos to the server disk (/api/upload) so n8n can
+                        // delete them via /api/webhooks/delete-video after publishing.
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        const resp = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+                        if (!resp.ok) {
+                          const text = await resp.text();
+                          throw new Error(`Upload failed (${resp.status}): ${text.substring(0, 200)}`);
+                        }
+                        const out = await resp.json();
+                        setNewPost(prev => ({ ...prev, videoUrl: out.url as string }));
+                      } catch (err: any) {
+                        alert(`${t('admin.upload_failed', 'Upload failed')}: ${err?.message || ''}`);
+                      } finally {
+                        setVideoUploading(false);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              {newPost.videoUrl && (
+                <div className="mt-2 relative inline-block">
+                  <video src={newPost.videoUrl} controls className="max-h-48 rounded border border-white/5" />
+                  <button
+                    type="button"
+                    onClick={async () => { await deleteFileFromServer(newPost.videoUrl); setNewPost(prev => ({ ...prev, videoUrl: '' })); }}
+                    className="absolute top-1 right-1 bg-[#0A192F]/80 text-red-400 hover:text-red-300 text-xs px-2 py-0.5 rounded"
+                  >
+                    {t('admin.delete', 'Delete')}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-[#8892B0] mb-1">Excerpt (short summary)</label>
               <textarea value={newPost.excerpt} onChange={e => setNewPost({...newPost, excerpt: e.target.value})} rows={2} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
             </div>
@@ -573,9 +688,21 @@ function BlogManager() {
               <input type="text" value={newPost.author} onChange={e => setNewPost({...newPost, author: e.target.value})} className="w-full px-3 py-2 border border-white/10 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50" />
             </div>
           </div>
-          <button type="submit" className="mt-3 px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] transition-colors">
-            {editingId ? t('admin.save_changes', 'Save Changes') : t('admin.publish', 'Publish')}
-          </button>
+          <div className="mt-3 flex flex-wrap gap-3 items-center">
+            <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] transition-colors">
+              {editingId ? t('admin.save_changes', 'Save Changes') : t('admin.publish', 'Publish')}
+            </button>
+            <button
+              type="button"
+              onClick={handlePushToQueue}
+              disabled={pushing || videoUploading}
+              className="px-6 py-2 bg-[#112240] border border-[#FFB300]/40 text-[#FFB300] rounded-md font-medium hover:bg-[#0A192F] transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              {pushing ? t('admin.pushing', 'Pushing…') : t('admin.push_to_n8n', 'Push to n8n Publishing Queue')}
+            </button>
+            <span className="text-xs text-[#8892B0]/70">{t('admin.push_hint', 'Sends this article + video to n8n for multi-platform publishing.')}</span>
+          </div>
         </form>
       )}
 
