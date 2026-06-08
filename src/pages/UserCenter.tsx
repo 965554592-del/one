@@ -148,14 +148,14 @@ export default function UserCenter() {
   if (!user) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4">
-        <div className="max-w-md w-full bg-[#112240] rounded-2xl shadow-sm border border-white/5 p-8 text-center">
-          <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mx-auto mb-6 border border-[#FFB300]/20">
-            <UserIcon className="w-8 h-8 text-[#FFB300]" />
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-stone-100 p-8 text-center">
+          <div className="w-16 h-16 bg-cream rounded-full flex items-center justify-center mx-auto mb-6 border border-brand/20">
+            <UserIcon className="w-8 h-8 text-brand" />
           </div>
-          <h2 className="text-2xl font-bold text-[#E6F1FF] mb-2">
+          <h2 className="text-2xl font-bold text-charcoal mb-2">
             {isRegistering ? t('auth.register_title') : t('auth.welcome_title')}
           </h2>
-          <p className="text-[#8892B0] mb-6">
+          <p className="text-charcoal/60 mb-6">
             {isRegistering ? t('auth.register_desc') : t('auth.login_desc')}
           </p>
           
@@ -164,29 +164,29 @@ export default function UserCenter() {
           
           <form onSubmit={handleEmailAuth} className="space-y-4 mb-6 text-left">
             <div>
-              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('auth.email')}</label>
+              <label className="block text-sm font-medium text-charcoal/60 mb-1">{t('auth.email')}</label>
               <input 
                 type="email" 
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-white/10 bg-[#0A192F] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                className="w-full px-3 py-2 border border-stone-200 bg-cream text-charcoal rounded-md focus:outline-none focus:border-brand/50"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#8892B0] mb-1">{t('auth.password')}</label>
+              <label className="block text-sm font-medium text-charcoal/60 mb-1">{t('auth.password')}</label>
               <input 
                 type="password" 
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-white/10 bg-[#0A192F] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50"
+                className="w-full px-3 py-2 border border-stone-200 bg-cream text-charcoal rounded-md focus:outline-none focus:border-brand/50"
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center px-4 py-2 bg-[#FFB300] text-[#0A192F] rounded-md hover:bg-[#FFCA28] text-sm font-bold transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center px-4 py-2 bg-brand text-white rounded-md hover:bg-brand-light text-sm font-bold transition-colors disabled:opacity-50"
             >
               {loading ? t('auth.processing') : (isRegistering ? t('auth.register_btn') : t('auth.login_btn'))}
             </button>
@@ -194,17 +194,17 @@ export default function UserCenter() {
 
           <div className="relative mb-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/10"></div>
+              <div className="w-full border-t border-stone-200"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-[#112240] text-[#8892B0]">{t('auth.or')}</span>
+              <span className="px-2 bg-white text-charcoal/60">{t('auth.or')}</span>
             </div>
           </div>
 
           <button
             onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full flex items-center justify-center px-4 py-3 border border-white/10 rounded-lg shadow-sm bg-[#0A192F] text-[#E6F1FF] hover:bg-black/50 font-medium transition-colors disabled:opacity-50 mb-4"
+            className="w-full flex items-center justify-center px-4 py-3 border border-stone-200 rounded-lg shadow-sm bg-cream text-charcoal hover:bg-black/50 font-medium transition-colors disabled:opacity-50 mb-4"
           >
             <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -215,11 +215,11 @@ export default function UserCenter() {
             {t('auth.google_login')}
           </button>
 
-          <p className="text-sm text-[#8892B0]">
+          <p className="text-sm text-charcoal/60">
             {isRegistering ? t('auth.have_account') : t('auth.no_account')}
             <button 
               onClick={() => { setIsRegistering(!isRegistering); setErrorMsg(''); setMessage(''); }}
-              className="ml-1 text-[#FFB300] hover:underline focus:outline-none"
+              className="ml-1 text-brand hover:underline focus:outline-none"
             >
               {isRegistering ? t('auth.login_now') : t('auth.register_now')}
             </button>
@@ -244,7 +244,7 @@ export default function UserCenter() {
       new: { label: t('user.status_new', 'Submitted'), color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
       processing: { label: t('user.status_processing', 'In Progress'), color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' },
       processed: { label: t('user.status_processed', 'Replied'), color: 'text-green-400 bg-green-500/10 border-green-500/20' },
-      closed: { label: t('user.status_closed', 'Closed'), color: 'text-[#8892B0] bg-white/5 border-white/10' },
+      closed: { label: t('user.status_closed', 'Closed'), color: 'text-charcoal/60 bg-stone-100 border-stone-200' },
     };
     return map[status] || map.new;
   };
@@ -258,27 +258,27 @@ export default function UserCenter() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-6">
       {/* Profile Header */}
-      <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
         <div className="p-8 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center mb-4 md:mb-0">
             {user.photoURL ? (
-              <img src={user.photoURL} alt="Profile" className="w-16 h-16 rounded-full mr-4 border border-[#FFB300]/20" referrerPolicy="no-referrer" />
+              <img src={user.photoURL} alt="Profile" className="w-16 h-16 rounded-full mr-4 border border-brand/20" referrerPolicy="no-referrer" />
             ) : (
-              <div className="w-16 h-16 bg-[#0A192F] rounded-full flex items-center justify-center mr-4 border border-[#FFB300]/20">
-                <UserIcon className="w-8 h-8 text-[#FFB300]" />
+              <div className="w-16 h-16 bg-cream rounded-full flex items-center justify-center mr-4 border border-brand/20">
+                <UserIcon className="w-8 h-8 text-brand" />
               </div>
             )}
             <div>
-              <h2 className="text-2xl font-bold text-[#E6F1FF]">{user.displayName || t('user.default_name')}</h2>
-              <p className="text-[#8892B0]">{user.email}</p>
-              <div className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#0A192F] text-[#FFB300] capitalize border border-[#FFB300]/20">
+              <h2 className="text-2xl font-bold text-charcoal">{user.displayName || t('user.default_name')}</h2>
+              <p className="text-charcoal/60">{user.email}</p>
+              <div className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-cream text-brand capitalize border border-brand/20">
                 {userRole === 'admin' ? t('user.role_admin') : t('user.role_user')}
               </div>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center px-4 py-2 border border-white/10 rounded-md text-sm font-medium text-[#E6F1FF] hover:bg-[#0A192F] transition-colors"
+            className="flex items-center px-4 py-2 border border-stone-200 rounded-md text-sm font-medium text-charcoal hover:bg-cream transition-colors"
           >
             <LogOut className="w-4 h-4 mr-2" />
             {t('auth.logout')}
@@ -292,32 +292,32 @@ export default function UserCenter() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab.key ? 'bg-[#FFB300] text-[#0A192F]' : 'bg-[#112240] text-[#8892B0] border border-white/5 hover:text-[#E6F1FF]'}`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab.key ? 'bg-brand text-white' : 'bg-white text-charcoal/60 border border-stone-100 hover:text-charcoal'}`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
             {tab.count !== undefined && tab.count > 0 && (
-              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${activeTab === tab.key ? 'bg-[#0A192F]/20 text-[#0A192F]' : 'bg-[#FFB300]/10 text-[#FFB300]'}`}>{tab.count}</span>
+              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${activeTab === tab.key ? 'bg-cream/20 text-white' : 'bg-brand/10 text-brand'}`}>{tab.count}</span>
             )}
           </button>
         ))}
       </div>
 
       {/* Tab Content */}
-      <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
         {/* ─── Inquiries Tab ─── */}
         {activeTab === 'inquiries' && (
           <div className="p-6">
-            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
-              <FileText className="w-5 h-5 mr-2 text-[#FFB300]" />
+            <h3 className="text-lg font-bold text-charcoal mb-4 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-brand" />
               {t('user.inquiry_history', 'Inquiry History')}
             </h3>
             {inquiriesLoading ? (
-              <div className="text-center py-12 text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+              <div className="text-center py-12 text-charcoal/60">{t('common.loading', 'Loading...')}</div>
             ) : inquiries.length === 0 ? (
-              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
-                <FileText className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
-                <p className="text-[#8892B0]">{t('user.no_inquiries', 'No inquiries yet. Submit one from the homepage!')}</p>
+              <div className="bg-cream rounded-xl border border-stone-100 p-12 text-center">
+                <FileText className="w-10 h-10 text-charcoal/60/30 mx-auto mb-3" />
+                <p className="text-charcoal/60">{t('user.no_inquiries', 'No inquiries yet. Submit one from the homepage!')}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -325,34 +325,34 @@ export default function UserCenter() {
                   const st = statusLabel(inq.status);
                   const isExpanded = expandedInquiry === inq.id;
                   return (
-                    <div key={inq.id} className="bg-[#0A192F] rounded-lg border border-white/5 overflow-hidden">
+                    <div key={inq.id} className="bg-cream rounded-lg border border-stone-100 overflow-hidden">
                       <button
                         onClick={() => setExpandedInquiry(isExpanded ? null : inq.id)}
                         className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.02] transition-colors"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium text-[#E6F1FF] truncate">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</span>
+                            <span className="text-sm font-medium text-charcoal truncate">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</span>
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${st.color}`}>{st.label}</span>
                           </div>
-                          <p className="text-xs text-[#8892B0] mt-1">
+                          <p className="text-xs text-charcoal/60 mt-1">
                             {inq.company && `${inq.company} · `}
                             {new Date(inq.createdAt).toLocaleDateString()}
                           </p>
                         </div>
-                        <Eye className={`w-4 h-4 text-[#8892B0] transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        <Eye className={`w-4 h-4 text-charcoal/60 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                       </button>
                       {isExpanded && (
-                        <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-2 text-sm">
+                        <div className="px-4 pb-4 border-t border-stone-100 pt-3 space-y-2 text-sm">
                           <div className="grid grid-cols-2 gap-2">
-                            {inq.name && <div><span className="text-[#8892B0]">{t('form.name', 'Name')}:</span> <span className="text-[#E6F1FF]">{inq.name}</span></div>}
-                            {inq.email && <div><span className="text-[#8892B0]">{t('form.email', 'Email')}:</span> <span className="text-[#E6F1FF]">{inq.email}</span></div>}
-                            {inq.phone && <div><span className="text-[#8892B0]">{t('form.phone', 'Phone')}:</span> <span className="text-[#E6F1FF]">{inq.phone}</span></div>}
-                            {inq.vehicleModel && <div><span className="text-[#8892B0]">{t('form.vehicle', 'Vehicle')}:</span> <span className="text-[#E6F1FF]">{inq.vehicleModel}</span></div>}
-                            {inq.quantity && <div><span className="text-[#8892B0]">{t('form.quantity', 'Qty')}:</span> <span className="text-[#E6F1FF]">{inq.quantity}</span></div>}
+                            {inq.name && <div><span className="text-charcoal/60">{t('form.name', 'Name')}:</span> <span className="text-charcoal">{inq.name}</span></div>}
+                            {inq.email && <div><span className="text-charcoal/60">{t('form.email', 'Email')}:</span> <span className="text-charcoal">{inq.email}</span></div>}
+                            {inq.phone && <div><span className="text-charcoal/60">{t('form.phone', 'Phone')}:</span> <span className="text-charcoal">{inq.phone}</span></div>}
+                            {inq.vehicleModel && <div><span className="text-charcoal/60">{t('form.vehicle', 'Vehicle')}:</span> <span className="text-charcoal">{inq.vehicleModel}</span></div>}
+                            {inq.quantity && <div><span className="text-charcoal/60">{t('form.quantity', 'Qty')}:</span> <span className="text-charcoal">{inq.quantity}</span></div>}
                           </div>
                           {inq.message && (
-                            <div className="mt-2 p-3 bg-[#112240] rounded-md text-[#8892B0] whitespace-pre-wrap text-xs">{inq.message}</div>
+                            <div className="mt-2 p-3 bg-white rounded-md text-charcoal/60 whitespace-pre-wrap text-xs">{inq.message}</div>
                           )}
                         </div>
                       )}
@@ -367,32 +367,32 @@ export default function UserCenter() {
         {/* ─── Favorites Tab ─── */}
         {activeTab === 'favorites' && (
           <div className="p-6">
-            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
-              <Heart className="w-5 h-5 mr-2 text-[#FFB300]" />
+            <h3 className="text-lg font-bold text-charcoal mb-4 flex items-center">
+              <Heart className="w-5 h-5 mr-2 text-brand" />
               {t('user.my_favorites', 'Favorite Products')}
             </h3>
             {favoritesLoading ? (
-              <div className="text-center py-12 text-[#8892B0]">{t('common.loading', 'Loading...')}</div>
+              <div className="text-center py-12 text-charcoal/60">{t('common.loading', 'Loading...')}</div>
             ) : favorites.length === 0 ? (
-              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
-                <Heart className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
-                <p className="text-[#8892B0]">{t('user.no_favorites', 'No favorites yet. Browse products and tap the heart icon!')}</p>
+              <div className="bg-cream rounded-xl border border-stone-100 p-12 text-center">
+                <Heart className="w-10 h-10 text-charcoal/60/30 mx-auto mb-3" />
+                <p className="text-charcoal/60">{t('user.no_favorites', 'No favorites yet. Browse products and tap the heart icon!')}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {favorites.map((prod: any) => (
-                  <div key={prod.favDocId} className="bg-[#0A192F] rounded-lg border border-white/5 overflow-hidden flex">
+                  <div key={prod.favDocId} className="bg-cream rounded-lg border border-stone-100 overflow-hidden flex">
                     {prod.images?.[0] && (
                       <img src={prod.images[0]} alt={prod.title} className="w-24 h-24 object-cover flex-shrink-0" />
                     )}
                     <div className="flex-1 p-3 min-w-0 flex flex-col justify-between">
                       <div>
-                        <h4 className="text-sm font-medium text-[#E6F1FF] truncate">{prod.title}</h4>
-                        <p className="text-xs text-[#8892B0] mt-0.5">{prod.category}</p>
+                        <h4 className="text-sm font-medium text-charcoal truncate">{prod.title}</h4>
+                        <p className="text-xs text-charcoal/60 mt-0.5">{prod.category}</p>
                       </div>
                       <div className="flex items-center justify-between mt-2">
-                        <a href={`/products/${prod.id}`} className="text-xs text-[#FFB300] hover:underline">{t('user.view_product', 'View')}</a>
-                        <button onClick={() => removeFavorite(prod.favDocId)} className="text-[#8892B0] hover:text-red-400 transition-colors">
+                        <a href={`/products/${prod.id}`} className="text-xs text-brand hover:underline">{t('user.view_product', 'View')}</a>
+                        <button onClick={() => removeFavorite(prod.favDocId)} className="text-charcoal/60 hover:text-red-400 transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -407,14 +407,14 @@ export default function UserCenter() {
         {/* ─── Order Tracking Tab ─── */}
         {activeTab === 'tracking' && (
           <div className="p-6">
-            <h3 className="text-lg font-bold text-[#E6F1FF] mb-4 flex items-center">
-              <Package className="w-5 h-5 mr-2 text-[#FFB300]" />
+            <h3 className="text-lg font-bold text-charcoal mb-4 flex items-center">
+              <Package className="w-5 h-5 mr-2 text-brand" />
               {t('user.order_tracking', 'Order Tracking')}
             </h3>
             {inquiries.filter(i => i.status === 'processing' || i.status === 'processed').length === 0 ? (
-              <div className="bg-[#0A192F] rounded-xl border border-white/5 p-12 text-center">
-                <Package className="w-10 h-10 text-[#8892B0]/30 mx-auto mb-3" />
-                <p className="text-[#8892B0]">{t('user.no_orders', 'No active orders. Your inquiries will appear here once they are being processed.')}</p>
+              <div className="bg-cream rounded-xl border border-stone-100 p-12 text-center">
+                <Package className="w-10 h-10 text-charcoal/60/30 mx-auto mb-3" />
+                <p className="text-charcoal/60">{t('user.no_orders', 'No active orders. Your inquiries will appear here once they are being processed.')}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -428,23 +428,23 @@ export default function UserCenter() {
                   ];
                   const currentStep = steps.indexOf(inq.status);
                   return (
-                    <div key={inq.id} className="bg-[#0A192F] rounded-lg border border-white/5 p-4">
+                    <div key={inq.id} className="bg-cream rounded-lg border border-stone-100 p-4">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-sm font-medium text-[#E6F1FF]">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</h4>
-                        <span className="text-xs text-[#8892B0]">{new Date(inq.createdAt).toLocaleDateString()}</span>
+                        <h4 className="text-sm font-medium text-charcoal">{inq.partNeed || inq.vehicleModel || t('user.general_inquiry', 'General Inquiry')}</h4>
+                        <span className="text-xs text-charcoal/60">{new Date(inq.createdAt).toLocaleDateString()}</span>
                       </div>
                       {/* Progress Steps */}
                       <div className="flex items-center">
                         {steps.map((step, i) => (
                           <div key={step} className="flex-1 flex items-center">
                             <div className={`flex flex-col items-center flex-1`}>
-                              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${i <= currentStep ? 'bg-[#FFB300] border-[#FFB300] text-[#0A192F]' : 'bg-[#112240] border-white/10 text-[#8892B0]'}`}>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${i <= currentStep ? 'bg-brand border-brand text-white' : 'bg-white border-stone-200 text-charcoal/60'}`}>
                                 {i < currentStep ? '✓' : i + 1}
                               </div>
-                              <span className={`text-[10px] mt-1 text-center ${i <= currentStep ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>{stepLabels[i]}</span>
+                              <span className={`text-[10px] mt-1 text-center ${i <= currentStep ? 'text-brand' : 'text-charcoal/60'}`}>{stepLabels[i]}</span>
                             </div>
                             {i < steps.length - 1 && (
-                              <div className={`h-0.5 flex-1 mx-1 ${i < currentStep ? 'bg-[#FFB300]' : 'bg-white/10'}`} />
+                              <div className={`h-0.5 flex-1 mx-1 ${i < currentStep ? 'bg-brand' : 'bg-stone-200'}`} />
                             )}
                           </div>
                         ))}

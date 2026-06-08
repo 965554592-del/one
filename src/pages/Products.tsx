@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Filter, ArrowRight, FileText, ArrowLeft } from 'lucide-react';
+import { Search, Filter, ArrowRight, FileText, ArrowLeft, Eye } from 'lucide-react';
 import SEO from '../components/SEO';
 import YMMSelect from '../components/YMMSelect';
 import { trackEvent } from '../lib/pixel';
@@ -43,16 +43,29 @@ const CACHE_KEY_CATEGORIES = 'vida_categories';
 export default function Products() {
   const { t } = useTranslation();
   const [products, setProducts] = useState<Product[]>(() => {
+    const buildTimeProducts = (typeof window !== 'undefined' && (window as any).__PRODUCTS__) || [];
+    let localProducts: Product[] = [];
     try {
       const cached = localStorage.getItem(CACHE_KEY_PRODUCTS);
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
+      if (cached) localProducts = JSON.parse(cached);
+    } catch {}
+
+    if (buildTimeProducts.length > 0 && localProducts.length > 0) {
+      const buildTimeLatest = Math.max(...buildTimeProducts.map((p: any) => new Date(p.createdAt || 0).getTime()));
+      const localLatest = Math.max(...localProducts.map((p: any) => new Date(p.createdAt || 0).getTime()));
+      return localLatest >= buildTimeLatest ? localProducts : buildTimeProducts;
+    }
+    return localProducts.length > 0 ? localProducts : buildTimeProducts;
   });
   const [categories, setCategories] = useState<Category[]>(() => {
+    const buildTimeCats = (typeof window !== 'undefined' && (window as any).__CATEGORIES__) || [];
+    let localCats: Category[] = [];
     try {
       const cached = localStorage.getItem(CACHE_KEY_CATEGORIES);
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
+      if (cached) localCats = JSON.parse(cached);
+    } catch {}
+
+    return localCats.length >= buildTimeCats.length ? localCats : buildTimeCats;
   });
   const [loading, setLoading] = useState(products.length === 0 || categories.length === 0);
   const [searchTerm, setSearchTerm] = useState('');
@@ -191,45 +204,61 @@ export default function Products() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <SEO
-        title="Auto Parts Catalog - Vida Auto Wholesale"
-        description="Browse Vida Auto's full catalog of OEM and aftermarket auto parts. Filter by category, search by SKU, and request bulk wholesale quotes."
-        path="/products"
-        noindex={searchParams.toString().length > 0}
-        breadcrumbs={[
-          { name: 'Home', url: '/' },
-          { name: 'Products', url: '/products' },
-        ]}
-      />
-      <Link to="/" className="inline-flex items-center text-sm text-[#8892B0] hover:text-[#FFB300] mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4 mr-2" /> {t('products.back_to_home', 'Back to Home')}
-      </Link>
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-[#E6F1FF] mb-4 md:mb-0">{t('products.title')}</h1>
-        
-        <form onSubmit={(e) => e.preventDefault()} className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-          <div className="relative flex items-center">
-            <input
-              type="text"
-              placeholder={t('products.search')}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-4 pr-10 py-2 border border-[#FFB300]/20 bg-black/20 text-white rounded-md focus:ring-[#FFB300] focus:border-[#FFB300] w-full sm:w-64"
-            />
-            <button type="submit" className="absolute right-2 p-1 text-[#8892B0] hover:text-[#FFB300] transition-colors">
-              <Search className="w-5 h-5" />
-            </button>
-          </div>
-        </form>
+    <div>
+      {/* Hero Banner */}
+      <div className="relative w-full h-[420px] md:h-[520px] overflow-hidden">
+        <img
+          src="https://picsum.photos/seed/vida-products-hero/1920/700"
+          alt="Products"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+          <h1 className="text-4xl md:text-6xl font-bold text-white mb-4">{t('products.title', 'Product Catalog')}</h1>
+          <p className="text-white/80 max-w-2xl text-sm md:text-lg">
+            {t('products.hero_desc', 'Premium OEM & aftermarket auto parts. Browse our full catalog and find the perfect fit for your vehicle.')}
+          </p>
+        </div>
       </div>
 
-      {/* Dropdown Filters */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <SEO
+          title="Auto Parts Catalog - Vida Auto Wholesale"
+          description="Browse Vida Auto's full catalog of OEM and aftermarket auto parts. Filter by category, search by SKU, and request bulk wholesale quotes."
+          path="/products"
+          noindex={searchParams.toString().length > 0}
+          breadcrumbs={[
+            { name: 'Home', url: '/' },
+            { name: 'Products', url: '/products' },
+          ]}
+        />
+        <Link to="/" className="inline-flex items-center text-sm text-charcoal/60 hover:text-brand mb-6 transition-colors">
+          <ArrowLeft className="w-4 h-4 mr-2" /> {t('products.back_to_home', 'Back to Home')}
+        </Link>
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-charcoal mb-4 md:mb-0">{t('products.browse', 'Browse Products')}</h2>
+          <form onSubmit={(e) => e.preventDefault()} className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                placeholder={t('products.search')}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-4 pr-10 py-2 border border-brand/20 bg-stone-100 text-charcoal rounded-md focus:ring-brand focus:border-brand w-full sm:w-64"
+              />
+              <button type="submit" className="absolute right-2 p-1 text-charcoal/60 hover:text-brand transition-colors">
+                <Search className="w-5 h-5" />
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Dropdown Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
         <select
           value={selectedParentCategory}
           onChange={(e) => { setSelectedParentCategory(e.target.value); setSelectedProductName(''); }}
-          className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[160px]"
+          className="px-3 py-2 border border-brand/20 bg-white text-charcoal rounded-md focus:outline-none focus:border-brand/50 text-sm min-w-[160px]"
         >
           <option value="">{t('products.all_categories', '全部分类')}</option>
           {categories.map(cat => (
@@ -240,7 +269,7 @@ export default function Products() {
           <select
             value={selectedProductName}
             onChange={(e) => setSelectedProductName(e.target.value)}
-            className="px-3 py-2 border border-[#FFB300]/20 bg-[#112240] text-white rounded-md focus:outline-none focus:border-[#FFB300]/50 text-sm min-w-[160px]"
+            className="px-3 py-2 border border-brand/20 bg-white text-charcoal rounded-md focus:outline-none focus:border-brand/50 text-sm min-w-[160px]"
           >
             <option value="">{t('products.all_products', '全部产品')}</option>
             {productNamesInCategory.map(name => (
@@ -253,7 +282,7 @@ export default function Products() {
       {/* YMM (Year / Make / Model) cascading filter — only shows when product fitment data exists */}
       {yearOptions.length > 0 && (
         <div className="mb-4">
-          <div className="text-xs uppercase tracking-wider text-[#8892B0] mb-2">{t('products.find_for_vehicle', 'Find parts for your vehicle')}</div>
+          <div className="text-xs uppercase tracking-wider text-charcoal/60 mb-2">{t('products.find_for_vehicle', 'Find parts for your vehicle')}</div>
           <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             <div className="w-full sm:w-[140px]">
               <YMMSelect
@@ -285,7 +314,7 @@ export default function Products() {
               <button
                 type="button"
                 onClick={resetYMM}
-                className="col-span-3 sm:col-auto text-xs text-[#FFB300] hover:underline text-left sm:text-center"
+                className="col-span-3 sm:col-auto text-xs text-brand hover:underline text-left sm:text-center"
               >
                 {t('products.clear_filter', 'Clear')}
               </button>
@@ -300,8 +329,8 @@ export default function Products() {
           onClick={() => setSelectedCategoryIds([])}
           className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
             selectedCategoryIds.length === 0 
-              ? 'bg-[#FFB300] text-[#0A192F]' 
-              : 'bg-[#112240] text-[#8892B0] border border-white/10 hover:border-[#FFB300]/50'
+              ? 'bg-brand text-white' 
+              : 'bg-white text-charcoal/60 border border-stone-200 hover:border-brand/50'
           }`}
         >
           {t('products.all')}
@@ -312,8 +341,8 @@ export default function Products() {
             onClick={() => toggleCategory(cat.id)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               selectedCategoryIds.includes(cat.id)
-                ? 'bg-[#FFB300] text-[#0A192F]'
-                : 'bg-[#112240] text-[#8892B0] border border-white/10 hover:border-[#FFB300]/50'
+                ? 'bg-brand text-white'
+                : 'bg-white text-charcoal/60 border border-stone-200 hover:border-brand/50'
             }`}
           >
             {cat.name}
@@ -321,89 +350,55 @@ export default function Products() {
         ))}
       </div>
 
+      <section className="animate-gradient-flow -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-10 rounded-2xl">
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="bg-[#112240] rounded-xl shadow-sm border border-white/5 overflow-hidden animate-pulse">
-              <div className="w-full h-48 bg-white/5"></div>
-              <div className="p-4">
-                <div className="h-3 w-1/3 bg-white/10 rounded mb-2"></div>
-                <div className="h-5 w-3/4 bg-white/10 rounded mb-2"></div>
-                <div className="h-4 w-1/2 bg-white/10 rounded mb-4"></div>
-                <div className="flex items-center justify-between">
-                   <div className="h-6 w-1/4 bg-white/10 rounded"></div>
-                   <div className="h-4 w-1/4 bg-white/10 rounded"></div>
-                </div>
-              </div>
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="rounded-2xl overflow-hidden aspect-[4/3] bg-stone-200 animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map((product) => (
-            <Link key={product.id} to={`/products/${product.id}`} className="group">
-              <div className="bg-[#112240] rounded-xl shadow-sm border border-white/5 overflow-hidden hover:border-[#FFB300]/50 transition-colors">
-                <div className="bg-[#0A192F] flex items-center justify-center">
-                  {(product.imageUrls && product.imageUrls.length > 0) || product.imageUrl ? (
-                    <img 
-                      src={product.imageUrls?.[0] || product.imageUrl} 
-                      alt={product.name} 
-                      loading="lazy"
-                      className="w-full h-48 object-contain p-3 group-hover:scale-[1.03] transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = `https://picsum.photos/seed/nanabuana-${product.id}/400/300`;
-                      }}
-                    />
-                  ) : (
-                    <img 
-                      src={`https://picsum.photos/seed/nanabuana-${product.id}/400/300`} 
-                      alt={product.name} 
-                      loading="lazy"
-                      className="w-full h-48 object-cover opacity-80 group-hover:scale-105 transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                    />
-                  )}
-                </div>
-                <div className="p-4">
-                  <div className="text-xs text-[#FFB300] font-semibold mb-1 uppercase tracking-wider">{product.categoryName}</div>
-                  <h3 className="text-lg font-bold text-white mb-1 truncate">{product.name}</h3>
-                  <p className="text-sm text-[#8892B0] mb-1">SKU: {product.sku}</p>
-                  {product.oemNumber && <p className="text-xs text-[#8892B0] mb-2">OEM: {product.oemNumber}</p>}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      {product.catalogUrl && (
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (!auth.currentUser) {
-                              alert(t('common.login_required'));
-                              return;
-                            }
-                            window.open(product.catalogUrl, '_blank');
-                          }}
-                          className="p-1 px-2 bg-white/5 hover:bg-white/10 rounded text-[#FFB300] transition-colors"
-                          title={t('product.manual_catalog')}
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-                      )}
-                      <span className="text-sm font-medium text-[#FFB300] group-hover:text-[#FFCA28] flex items-center">
-                        {t('home.view_details')} <ArrowRight className="ml-1 w-4 h-4" />
-                      </span>
-                    </div>
-                  </div>
+            <Link key={product.id} to={`/products/${product.id}`} className="group relative rounded-2xl overflow-hidden block aspect-[4/3] bg-cream">
+              {(product.imageUrls && product.imageUrls.length > 0) || product.imageUrl ? (
+                <img
+                  src={product.imageUrls?.[0] || product.imageUrl}
+                  alt={product.name}
+                  loading="lazy"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = `https://picsum.photos/seed/nanabuana-${product.id}/600/450`;
+                  }}
+                />
+              ) : (
+                <img
+                  src={`https://picsum.photos/seed/nanabuana-${product.id}/600/450`}
+                  alt={product.name}
+                  loading="lazy"
+                  className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-500"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+              <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/70 to-transparent" />
+              <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
+                <span className="text-white font-semibold text-lg drop-shadow truncate pr-3">{product.name}</span>
+                <div className="flex items-center gap-1.5 px-4 py-2 bg-white/90 backdrop-blur-sm rounded-full text-xs font-semibold text-charcoal group-hover:bg-brand group-hover:text-white transition-colors shrink-0">
+                  <Eye size={14} /> {t('home.view_details', 'View')}
                 </div>
               </div>
             </Link>
           ))}
           {filteredProducts.length === 0 && (
-            <div className="col-span-full text-center py-12 text-[#8892B0]">
+            <div className="col-span-full text-center py-12 text-charcoal/60">
               {t('products.no_products')}
             </div>
           )}
         </div>
       )}
+      </section>
+    </div>
     </div>
   );
 }

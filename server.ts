@@ -33,9 +33,33 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit (supports 1080p video ≤30s)
 });
 
+const cleanupOldUploads = () => {
+  const maxAgeMs = 72 * 60 * 60 * 1000;
+  const now = Date.now();
+  let deleted = 0;
+  try {
+    const files = fs.readdirSync(uploadsDir, { withFileTypes: true });
+    for (const file of files) {
+      if (!file.isFile()) continue;
+      const filePath = path.join(uploadsDir, file.name);
+      const stat = fs.statSync(filePath);
+      if (now - stat.mtimeMs <= maxAgeMs) continue;
+      fs.unlinkSync(filePath);
+      deleted += 1;
+    }
+    if (deleted > 0) {
+      console.log(`[UploadsCleanup] Deleted ${deleted} file(s) older than 72h.`);
+    }
+  } catch (error) {
+    console.error("[UploadsCleanup] Failed:", error);
+  }
+};
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  cleanupOldUploads();
+  setInterval(cleanupOldUploads, 60 * 60 * 1000);
 
   // CORS: allow split-deployment (frontend on a different origin).
   // CORS_ORIGIN can be:
@@ -939,13 +963,18 @@ async function startServer() {
   // (kept server-side to avoid CORS + hide the internal URL). Configure the
   // target via env N8N_PUBLISH_WEBHOOK_URL.
   app.post("/api/n8n/push-publish", async (req, res) => {
-    const target = (process.env.N8N_PUBLISH_WEBHOOK_URL || "").trim();
+    const payload = req.body || {};
+    const publishMode = payload.publishMode === "immediate" ? "immediate" : "queue";
+    const target = (
+      publishMode === "immediate"
+        ? process.env.N8N_PUBLISH_WEBHOOK_URL
+        : (process.env.N8N_ENQUEUE_WEBHOOK_URL || process.env.N8N_PUBLISH_WEBHOOK_URL)
+    || "").trim();
     if (!target) {
-      console.error("[n8n/push] N8N_PUBLISH_WEBHOOK_URL is not configured.");
-      return res.status(500).json({ success: false, error: "N8N_PUBLISH_WEBHOOK_URL not configured on the server." });
+      console.error("[n8n/push] n8n webhook URL is not configured.");
+      return res.status(500).json({ success: false, error: "n8n webhook URL not configured on the server." });
     }
 
-    const payload = req.body || {};
     if (!payload.title) {
       return res.status(400).json({ success: false, error: "Missing title" });
     }
@@ -972,8 +1001,8 @@ async function startServer() {
         return res.status(502).json({ success: false, error: `n8n webhook returned ${r.status}`, details: data });
       }
 
-      console.log(`[n8n/push] Forwarded "${payload.title}" to n8n (${r.status}).`);
-      res.json({ success: true, forwarded: true, n8n: data });
+      console.log(`[n8n/push] Forwarded "${payload.title}" to n8n (${publishMode}, ${r.status}).`);
+      res.json({ success: true, forwarded: true, mode: publishMode, n8n: data });
     } catch (err: any) {
       console.error("[n8n/push] Forward failed:", err);
       res.status(502).json({ success: false, error: err.message || "Failed to reach n8n webhook" });
@@ -1013,6 +1042,57 @@ async function startServer() {
     }
     console.warn(`[Webhook/DeleteVideo] File already gone: ${match[1]}`);
     res.json({ success: true, deleted: false, reason: "File not found (already removed)" });
+  });
+
+  app.post("/api/webhooks/delete-assets", (req, res) => {
+    const body = req.body || {};
+    const rawUrls = Array.isArray(body.urls)
+      ? body.urls
+      : typeof body.urls === "string"
+        ? body.urls.split(",")
+        : typeof body.url === "string"
+          ? [body.url]
+          : typeof body.coverImage === "string"
+            ? body.coverImage.split(",")
+            : [];
+    const urls = rawUrls.map((url: any) => String(url).trim()).filter(Boolean);
+    console.log(`[Webhook/DeleteAssets] Request: ${urls.length} asset(s)`);
+
+    if (urls.length === 0) {
+      return res.status(400).json({ success: false, error: "Missing urls" });
+    }
+
+    const results = urls.map((url: string) => {
+      const match = url.match(/\/uploads\/([^/?#]+)$/);
+      if (!match) {
+        return { url, success: true, skipped: true, reason: "Not a server /uploads asset" };
+      }
+
+      const file = path.basename(match[1]);
+      if (file !== match[1]) {
+        return { url, success: false, error: "Invalid file name" };
+      }
+      const filePath = path.join(uploadsDir, file);
+      if (!fs.existsSync(filePath)) {
+        return { url, success: true, deleted: false, reason: "File not found (already removed)" };
+      }
+
+      try {
+        fs.unlinkSync(filePath);
+        return { url, success: true, deleted: true, file };
+      } catch (error: any) {
+        console.error(`[Webhook/DeleteAssets] Unlink failed for ${file}:`, error);
+        return { url, success: false, error: "Failed to delete file" };
+      }
+    });
+
+    const failed = results.filter((r: any) => !r.success);
+    res.status(failed.length ? 500 : 200).json({
+      success: failed.length === 0,
+      deleted: results.filter((r: any) => r.deleted).length,
+      skipped: results.filter((r: any) => r.skipped).length,
+      results,
+    });
   });
 
   // Comprehensive catch-all error handler for JSON responses

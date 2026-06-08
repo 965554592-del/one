@@ -262,7 +262,7 @@ export default function ProductDetail() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FFB300]"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand"></div>
       </div>
     );
   }
@@ -270,8 +270,8 @@ export default function ProductDetail() {
   if (!product) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-12 text-center">
-        <h2 className="text-2xl font-bold text-[#E6F1FF] mb-4">{t('product.not_found')}</h2>
-        <Link to="/products" className="text-[#FFB300] hover:text-[#FFCA28] flex items-center justify-center">
+        <h2 className="text-2xl font-bold text-charcoal mb-4">{t('product.not_found')}</h2>
+        <Link to="/products" className="text-brand hover:text-brand-light flex items-center justify-center">
           <ArrowLeft className="w-4 h-4 mr-2" /> {t('product.back_to_list')}
         </Link>
       </div>
@@ -326,15 +326,15 @@ export default function ProductDetail() {
           breadcrumbs={breadcrumbs}
         />
       )}
-      <Link to="/products" className="inline-flex items-center text-sm text-[#8892B0] hover:text-[#FFB300] mb-8 transition-colors">
+      <Link to="/products" className="inline-flex items-center text-sm text-charcoal/60 hover:text-brand mb-8 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-2" /> {t('product.back_to_catalog')}
       </Link>
 
-      <div className="bg-[#112240] rounded-2xl shadow-sm border border-white/5 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
           {/* Image Gallery & Video */}
-          <div className="p-8 bg-[#0A192F] border-r border-white/5">
-            <div className="bg-[#112240] rounded-xl overflow-hidden border border-white/5 mb-4 relative flex items-center justify-center">
+          <div className="p-8 bg-cream border-r border-stone-100">
+            <div className="bg-white rounded-xl overflow-hidden border border-stone-100 mb-4 relative flex items-center justify-center">
               {product.videoUrl && activeImage === -1 ? (
                 <video
                   src={product.videoUrl}
@@ -361,7 +361,7 @@ export default function ProductDetail() {
                       (e.target as HTMLImageElement).src = `https://picsum.photos/seed/nanabuana-${product.id}/800/600`;
                     }}
                   />
-                  <span className="absolute bottom-2 right-2 text-[10px] bg-black/60 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="absolute bottom-2 right-2 text-[10px] bg-black/60 text-charcoal px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
                     {t('products.view_original', 'View original')}
                   </span>
                 </a>
@@ -381,19 +381,19 @@ export default function ProductDetail() {
                 <button
                   onClick={() => setActiveImage(-1)}
                   className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors relative bg-black flex items-center justify-center ${
-                    activeImage === -1 ? 'border-[#FFB300]' : 'border-transparent hover:border-[#FFB300]/50'
+                    activeImage === -1 ? 'border-brand' : 'border-transparent hover:border-brand/50'
                   }`}
                 >
-                  <Video className="w-8 h-8 text-[#FFB300]" />
-                  <span className="absolute bottom-1 right-1 text-[8px] bg-[#FFB300] text-[#0A192F] px-1 rounded font-bold uppercase">Video</span>
+                  <Video className="w-8 h-8 text-brand" />
+                  <span className="absolute bottom-1 right-1 text-[8px] bg-brand text-white px-1 rounded font-bold uppercase">Video</span>
                 </button>
               )}
               {product.imageUrls && product.imageUrls.map((url, index) => (
                 <button
                   key={index}
                   onClick={() => setActiveImage(index)}
-                  className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors bg-[#0A192F] ${
-                    activeImage === index ? 'border-[#FFB300]' : 'border-transparent hover:border-[#FFB300]/50'
+                  className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors bg-cream ${
+                    activeImage === index ? 'border-brand' : 'border-transparent hover:border-brand/50'
                   }`}
                 >
                   <img src={url} alt={`${product.name} ${index + 1}`} loading="lazy" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
@@ -404,33 +404,33 @@ export default function ProductDetail() {
 
           {/* Product Info */}
           <div className="p-8 md:p-12 flex flex-col">
-            <div className="text-sm text-[#FFB300] font-semibold mb-2 uppercase tracking-wider">{product.categoryName}</div>
-            <h1 className="text-3xl font-bold text-white mb-2">{product.name}</h1>
-            <p className="text-[#8892B0] mb-1">SKU: <span className="font-mono text-white">{product.sku}</span></p>
-            {product.oemNumber && <p className="text-[#8892B0] mb-1">OEM: <span className="font-mono text-white">{product.oemNumber}</span></p>}
+            <div className="text-sm text-brand font-semibold mb-2 uppercase tracking-wider">{product.categoryName}</div>
+            <h1 className="text-3xl font-bold text-charcoal mb-2">{product.name}</h1>
+            <p className="text-charcoal/60 mb-1">SKU: <span className="font-mono text-charcoal">{product.sku}</span></p>
+            {product.oemNumber && <p className="text-charcoal/60 mb-1">OEM: <span className="font-mono text-charcoal">{product.oemNumber}</span></p>}
             <div className="mb-5"></div>
 
             {/* Tech Specs */}
             {product.techSpecs && (
               <div className="mb-8">
-                <h3 className="text-lg font-bold text-white mb-4 border-b border-white/5 pb-2">{t('product.tech_specs')}</h3>
+                <h3 className="text-lg font-bold text-charcoal mb-4 border-b border-stone-100 pb-2">{t('product.tech_specs')}</h3>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                   {product.techSpecs.material && (
                     <div>
-                      <dt className="text-sm font-medium text-[#8892B0]">{t('product.material')}</dt>
-                      <dd className="mt-1 text-sm text-white">{product.techSpecs.material}</dd>
+                      <dt className="text-sm font-medium text-charcoal/60">{t('product.material')}</dt>
+                      <dd className="mt-1 text-sm text-charcoal">{product.techSpecs.material}</dd>
                     </div>
                   )}
                   {product.techSpecs.weight && (
                     <div>
-                      <dt className="text-sm font-medium text-[#8892B0]">{t('product.weight')}</dt>
-                      <dd className="mt-1 text-sm text-white">{product.techSpecs.weight}</dd>
+                      <dt className="text-sm font-medium text-charcoal/60">{t('product.weight')}</dt>
+                      <dd className="mt-1 text-sm text-charcoal">{product.techSpecs.weight}</dd>
                     </div>
                   )}
                   {product.techSpecs.compatibility && (
                     <div className="sm:col-span-2">
-                      <dt className="text-sm font-medium text-[#8892B0]">{t('product.compatibility')}</dt>
-                      <dd className="mt-1 text-sm text-white">{product.techSpecs.compatibility}</dd>
+                      <dt className="text-sm font-medium text-charcoal/60">{t('product.compatibility')}</dt>
+                      <dd className="mt-1 text-sm text-charcoal">{product.techSpecs.compatibility}</dd>
                     </div>
                   )}
                 </dl>
@@ -440,32 +440,32 @@ export default function ProductDetail() {
             <div className="mt-auto space-y-4">
               <button 
                 onClick={handleWhatsAppInquiry}
-                className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center transition-colors"
+                className="w-full bg-[#25D366] hover:bg-[#128C7E] text-charcoal px-6 py-3 rounded-lg font-medium flex items-center justify-center transition-colors"
               >
                 <MessageCircle className="w-5 h-5 mr-2" />
                 {t('products.inquiry')} (WhatsApp)
               </button>
               
               <div className="space-y-3">
-                <h3 className="text-sm font-bold text-[#8892B0] uppercase tracking-wider">{t('product.downloads', 'Related Downloads')}</h3>
+                <h3 className="text-sm font-bold text-charcoal/60 uppercase tracking-wider">{t('product.downloads', 'Related Downloads')}</h3>
                 
                 <div className="grid grid-cols-1 gap-2">
                   {/* Product Specific Catalog */}
                   {product.catalogUrl && (
-                    <div className="flex items-center justify-between p-3 bg-[#0A192F] rounded-lg border border-[#FFB300]/20 group">
+                    <div className="flex items-center justify-between p-3 bg-cream rounded-lg border border-brand/20 group">
                       <div className="flex items-center space-x-3 overflow-hidden">
-                        <FileText className="w-4 h-4 text-[#FFB300] shrink-0" />
-                        <span className="text-sm text-white truncate font-medium">{t('product.manual_catalog', 'Product Manual/Catalog')}</span>
+                        <FileText className="w-4 h-4 text-brand shrink-0" />
+                        <span className="text-sm text-charcoal truncate font-medium">{t('product.manual_catalog', 'Product Manual/Catalog')}</span>
                       </div>
                       <button 
                         onClick={() => handleDownload({ id: 'product-manual', title: product.name + ' Manual', url: product.catalogUrl })}
                         disabled={!!downloading}
-                        className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
+                        className="text-brand hover:text-brand-light transition-colors disabled:opacity-50"
                       >
                         {downloading === 'product-manual' ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (!user && !hasGuestProfile) ? (
-                          <Lock className="w-4 h-4 text-[#8892B0] hover:text-[#FFB300]" />
+                          <Lock className="w-4 h-4 text-charcoal/60 hover:text-brand" />
                         ) : (
                           <FileText className="w-4 h-4" />
                         )}
@@ -474,20 +474,20 @@ export default function ProductDetail() {
                   )}
 
                   {qualifications.map((qual) => (
-                    <div key={qual.id} className="flex items-center justify-between p-3 bg-[#0A192F] rounded-lg border border-white/5 group">
+                    <div key={qual.id} className="flex items-center justify-between p-3 bg-cream rounded-lg border border-stone-100 group">
                       <div className="flex items-center space-x-3 overflow-hidden">
-                        <FileText className="w-4 h-4 text-[#FFB300] shrink-0" />
-                        <span className="text-sm text-white truncate">{qual.title}</span>
+                        <FileText className="w-4 h-4 text-brand shrink-0" />
+                        <span className="text-sm text-charcoal truncate">{qual.title}</span>
                       </div>
                       <button 
                         onClick={() => handleDownload(qual)}
                         disabled={!!downloading}
-                        className="text-[#FFB300] hover:text-[#FFCA28] transition-colors disabled:opacity-50"
+                        className="text-brand hover:text-brand-light transition-colors disabled:opacity-50"
                       >
                         {downloading === qual.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (!user && !hasGuestProfile) ? (
-                          <Lock className="w-4 h-4 text-[#8892B0] hover:text-[#FFB300]" />
+                          <Lock className="w-4 h-4 text-charcoal/60 hover:text-brand" />
                         ) : (
                           <FileText className="w-4 h-4" />
                         )}
@@ -496,11 +496,11 @@ export default function ProductDetail() {
                   ))}
 
                   {qualifications.length === 0 && !product.catalogUrl && (
-                    <div className="text-xs text-[#8892B0] italic">{t('product.no_downloads', 'No related downloads available')}</div>
+                    <div className="text-xs text-charcoal/60 italic">{t('product.no_downloads', 'No related downloads available')}</div>
                   )}
                 </div>
                 {!user && (
-                  <Link to="/user" className="block text-center text-xs text-[#FFB300] hover:underline">
+                  <Link to="/user" className="block text-center text-xs text-brand hover:underline">
                     {t('products.loginToDownload')}
                   </Link>
                 )}

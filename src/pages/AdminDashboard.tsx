@@ -125,6 +125,15 @@ const deleteFileFromServer = async (fileUrl: string) => {
   }
 };
 
+const splitAssetUrls = (value: string): string[] => (
+  (value || '').split(',').map(url => url.trim()).filter(Boolean)
+);
+
+const deleteAssetUrls = async (value: string) => {
+  const urls = splitAssetUrls(value);
+  await Promise.all(urls.map(url => deleteFileFromServer(url)));
+};
+
 function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) {
   const { t } = useTranslation();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -151,6 +160,7 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'certificates', label: t('admin.certificates_tab'), icon: ShieldCheck },
     { id: 'brand-logos', label: t('admin.brand_logos', 'Brand Logos'), icon: Layers },
     { id: 'about-sections', label: t('admin.about_sections', 'About Sections'), icon: FileText },
+    { id: 'home-content', label: t('admin.home_content', 'Home Content'), icon: Layers },
     { id: 'blog', label: t('admin.blog', 'Blog'), icon: FileText },
     { id: 'sourcing-guides', label: t('admin.sourcing_guides', 'Sourcing Guides'), icon: FileText },
     { id: 'weekly-reports', label: t('admin.weekly_reports', 'Weekly Reports'), icon: Calendar },
@@ -208,7 +218,7 @@ export default function AdminDashboard() {
       
       <div className="flex flex-col md:flex-row gap-8">
         {/* Sidebar */}
-        <div className="w-full md:w-64 flex-shrink-0">
+        <div className="w-full md:w-64 flex-shrink-0 bg-[#0A192F] rounded-xl p-4 border border-white/5">
           <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         {/* Content Area */}
@@ -226,6 +236,7 @@ export default function AdminDashboard() {
           {activeTab === 'certificates' && <CertificatesManager />}
           {activeTab === 'brand-logos' && <BrandLogosManager />}
           {activeTab === 'about-sections' && <AboutSectionsManager />}
+          {activeTab === 'home-content' && <HomeContentManager />}
           {activeTab === 'blog' && <BlogManager />}
           {activeTab === 'sourcing-guides' && <SourcingGuidesManager />}
           {activeTab === 'weekly-reports' && <WeeklyReportsManager />}
@@ -391,6 +402,7 @@ function BlogManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pushing, setPushing] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
+  const [publishMode, setPublishMode] = useState<'queue' | 'immediate'>('queue');
   const [newPost, setNewPost] = useState({
     title: '', slug: '', excerpt: '', content: '', coverImage: '', videoUrl: '', category: '', readTime: '', author: 'Vida Auto', tags: ''
   });
@@ -488,6 +500,7 @@ function BlogManager() {
         slug,
         blogId: editingId || '',
         source: 'manual_cms',
+        publishMode,
         pushedAt: new Date().toISOString(),
       };
       const res = await fetch(apiUrl('/api/n8n/push-publish'), {
@@ -499,7 +512,9 @@ function BlogManager() {
       if (!res.ok || out?.success === false) {
         throw new Error(out?.error || `HTTP ${res.status}`);
       }
-      alert(t('admin.push_ok', '✅ Pushed to n8n publishing queue. The video will be auto-deleted after publishing.'));
+      alert(publishMode === 'immediate'
+        ? t('admin.push_ok_immediate', '✅ Sent to n8n for immediate publishing.')
+        : t('admin.push_ok', '✅ Added to n8n publishing queue.'));
     } catch (err: any) {
       alert(`${t('admin.push_failed', 'Push to queue failed')}: ${err?.message || ''}`);
     } finally {
@@ -582,13 +597,25 @@ function BlogManager() {
                     type="file"
                     className="sr-only"
                     accept="image/*"
+                    multiple
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       try {
-                        if (newPost.coverImage) await deleteFileFromServer(newPost.coverImage);
-                        const url = await uploadFile(file, 'blog-covers');
-                        setNewPost(prev => ({ ...prev, coverImage: url }));
+                        if (newPost.coverImage) await deleteAssetUrls(newPost.coverImage);
+                        const files = Array.from(e.target.files || []).slice(0, 2);
+                        const urls = await Promise.all(files.map(async (file) => {
+                          const formData = new FormData();
+                          formData.append('file', file);
+                          const resp = await fetch(apiUrl('/api/upload'), { method: 'POST', body: formData });
+                          if (!resp.ok) {
+                            const text = await resp.text();
+                            throw new Error(`Upload failed (${resp.status}): ${text.substring(0, 200)}`);
+                          }
+                          const out = await resp.json();
+                          return out.url as string;
+                        }));
+                        setNewPost(prev => ({ ...prev, coverImage: urls.join(', ') }));
                       } catch (err: any) {
                         alert(`${t('admin.upload_failed', 'Upload failed')}: ${err?.message || ''}`);
                       } finally {
@@ -600,10 +627,14 @@ function BlogManager() {
               </div>
               {newPost.coverImage && (
                 <div className="mt-2 relative inline-block">
-                  <img src={newPost.coverImage} alt="cover" className="max-h-40 rounded border border-white/5" />
+                  <div className="flex gap-2 flex-wrap">
+                    {splitAssetUrls(newPost.coverImage).map(url => (
+                      <img key={url} src={url} alt="cover" className="max-h-40 rounded border border-white/5" />
+                    ))}
+                  </div>
                   <button
                     type="button"
-                    onClick={async () => { await deleteFileFromServer(newPost.coverImage); setNewPost(prev => ({ ...prev, coverImage: '' })); }}
+                    onClick={async () => { await deleteAssetUrls(newPost.coverImage); setNewPost(prev => ({ ...prev, coverImage: '' })); }}
                     className="absolute top-1 right-1 bg-[#0A192F]/80 text-red-400 hover:text-red-300 text-xs px-2 py-0.5 rounded"
                   >
                     {t('admin.delete', 'Delete')}
@@ -692,6 +723,14 @@ function BlogManager() {
             <button type="submit" className="px-6 py-2 bg-[#FFB300] text-[#0A192F] rounded-md font-medium hover:bg-[#FFCA28] transition-colors">
               {editingId ? t('admin.save_changes', 'Save Changes') : t('admin.publish', 'Publish')}
             </button>
+            <select
+              value={publishMode}
+              onChange={e => setPublishMode(e.target.value as 'queue' | 'immediate')}
+              className="px-3 py-2 bg-[#112240] border border-white/10 text-[#E6F1FF] rounded-md text-sm focus:outline-none focus:border-[#FFB300]/50"
+            >
+              <option value="queue">{t('admin.enqueue', 'Queue for scheduled publishing')}</option>
+              <option value="immediate">{t('admin.publish_immediately', 'Publish immediately')}</option>
+            </select>
             <button
               type="button"
               onClick={handlePushToQueue}
@@ -1368,7 +1407,7 @@ function SourcingGuidesManager() {
             <button
               key={title}
               onClick={() => handleSelectArticleCat(articleCatTitle === title ? '' : title)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${articleCatTitle === title ? 'bg-[#FFB300] text-[#0A192F] border-[#FFB300]' : 'bg-[#112240] text-[#8892B0] border-white/10 hover:border-[#FFB300]/40'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${articleCatTitle === title ? 'bg-[#FFB300] text-[#0A192F] border-brand' : 'bg-[#112240] text-[#8892B0] border-white/10 hover:border-[#FFB300]/40'}`}
             >
               {title}
             </button>
@@ -1508,7 +1547,7 @@ function HeroHeadlineStylist() {
     { name: 'Gradient Sunset', classes: 'bg-gradient-to-r from-[#FFB300] via-[#FF4D4D] to-purple-500 bg-clip-text text-transparent font-extrabold' },
     { name: 'Elite Luxury', classes: 'text-[#FFB300] font-serif italic font-light tracking-[0.2em] uppercase underline underline-offset-8 decoration-white/20' },
     { name: 'Brutalist Tech', classes: 'text-white font-mono font-black uppercase italic bg-[#FFB300] px-4 py-2 text-[#0A192F]' },
-    { name: 'Clean Corporate', classes: 'text-[#E6F1FF] font-sans font-light tracking-tight border-l-4 border-[#FFB300] pl-6' },
+    { name: 'Clean Corporate', classes: 'text-[#E6F1FF] font-sans font-light tracking-tight border-l-4 border-brand pl-6' },
     { name: 'Glossy Carbon', classes: 'text-[#E6F1FF] font-black drop-shadow-[2px_2px_0px_#FFB300] uppercase italic' },
     { name: 'Golden Outline', classes: 'font-black text-transparent stroke-[#FFB300] stroke-1 [text-stroke:1px_#FFB300] uppercase tracking-tighter' },
     { name: 'Future Minimal', classes: 'text-[#FFB300] font-light tracking-[0.5em] uppercase text-center opacity-80' }
@@ -2678,7 +2717,7 @@ function ProductsManager() {
                           setDragOverIndex(null);
                         }}
                         className={`relative group aspect-square border-2 ${
-                          isDragOver ? 'border-[#FFB300] bg-[#FFB300]/10' : 'border-white/10'
+                          isDragOver ? 'border-brand bg-[#FFB300]/10' : 'border-white/10'
                         } border-dashed rounded-lg hover:border-[#FFB300]/50 transition-all overflow-hidden flex items-center justify-center bg-[#112240]/50 ${
                           isDragging ? 'opacity-40 scale-95' : ''
                         } ${hasImage ? 'cursor-move' : ''}`}
@@ -3451,7 +3490,7 @@ function TasksManager() {
             <div key={tk.id} className={`p-4 rounded-xl border transition-all ${isOverdue ? 'bg-red-900/10 border-red-500/30' : tk.status === 'done' ? 'bg-[#0A192F] border-white/5 opacity-60' : 'bg-[#0A192F] border-white/10'}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <button onClick={() => handleToggleStatus(tk.id, tk.status)} className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${tk.status === 'done' ? 'bg-green-500 border-green-500' : 'border-[#8892B0] hover:border-[#FFB300]'}`}>
+                  <button onClick={() => handleToggleStatus(tk.id, tk.status)} className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${tk.status === 'done' ? 'bg-green-500 border-green-500' : 'border-[#8892B0] hover:border-brand'}`}>
                     {tk.status === 'done' && <CheckCircle className="w-3 h-3 text-white" />}
                   </button>
                   <div className="flex-1 min-w-0">
@@ -4379,7 +4418,7 @@ function SettingsManager() {
             <div className="flex items-center gap-3">
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" checked={smtpSecure} onChange={e => setSmtpSecure(e.target.checked)} className="sr-only peer" />
-                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-brand after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
               </label>
               <span className="text-sm text-[#8892B0]">SSL/TLS ({t('admin.smtp_secure_hint', 'Enable for port 465, disable for 587 with STARTTLS')})</span>
             </div>
@@ -4424,7 +4463,7 @@ function SettingsManager() {
               <div className="flex items-center gap-3">
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" checked={emailNotifyEnabled} onChange={e => setEmailNotifyEnabled(e.target.checked)} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-brand after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
                 </label>
                 <span className={`text-sm font-medium ${emailNotifyEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
                   {t('admin.notify_admin', 'Notify admin/sales on new inquiry')}
@@ -4439,7 +4478,7 @@ function SettingsManager() {
               <div className="flex items-center gap-3">
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" checked={emailAutoReplyEnabled} onChange={e => setEmailAutoReplyEnabled(e.target.checked)} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                  <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-brand after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
                 </label>
                 <span className={`text-sm font-medium ${emailAutoReplyEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
                   {t('admin.auto_reply', 'Auto-reply confirmation to customer')}
@@ -4458,7 +4497,7 @@ function SettingsManager() {
             <div className="flex items-center gap-3">
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" checked={crmWebhookEnabled} onChange={e => setCrmWebhookEnabled(e.target.checked)} className="sr-only peer" />
-                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-brand after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
               </label>
               <span className={`text-sm font-medium ${crmWebhookEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
                 {crmWebhookEnabled ? t('admin.crm_enabled', 'CRM Push Enabled') : t('admin.crm_disabled', 'CRM Push Disabled')}
@@ -4544,7 +4583,7 @@ function SettingsManager() {
             <div className="flex items-center gap-3">
               <label className="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" checked={discordWebhookEnabled} onChange={e => setDiscordWebhookEnabled(e.target.checked)} className="sr-only peer" />
-                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-[#FFB300] after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                <div className="w-11 h-6 bg-[#112240] border border-white/10 rounded-full peer peer-checked:bg-[#FFB300] peer-checked:border-brand after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
               </label>
               <span className={`text-sm font-medium ${discordWebhookEnabled ? 'text-[#FFB300]' : 'text-[#8892B0]'}`}>
                 {discordWebhookEnabled ? t('admin.discord_enabled', 'Discord Weekly Report Push Enabled') : t('admin.discord_disabled', 'Discord Weekly Report Push Disabled')}
@@ -4626,7 +4665,7 @@ function SettingsManager() {
               <button 
                 type="button"
                 onClick={() => setFeaturesLayout('classic')}
-                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'classic' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'classic' ? 'border-brand bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
               >
                 <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_classic', 'Classic')}</div>
                 <div className="text-xs text-[#8892B0]">{t('admin.layout_classic_desc', 'Standard stacked layout with indicators above and features below.')}</div>
@@ -4634,7 +4673,7 @@ function SettingsManager() {
               <button 
                 type="button"
                 onClick={() => setFeaturesLayout('modern')}
-                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'modern' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'modern' ? 'border-brand bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
               >
                 <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_modern', 'Modern')}</div>
                 <div className="text-xs text-[#8892B0]">{t('admin.layout_modern_desc', 'Alternating layout with decorative elements.')}</div>
@@ -4642,7 +4681,7 @@ function SettingsManager() {
               <button 
                 type="button"
                 onClick={() => setFeaturesLayout('split')}
-                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'split' ? 'border-[#FFB300] bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
+                className={`p-4 border rounded-xl text-left transition-all ${featuresLayout === 'split' ? 'border-brand bg-[#FFB300]/10 shadow-[0_0_15px_rgba(255,179,0,0.2)]' : 'border-white/10 bg-[#112240] hover:border-white/20'}`}
               >
                 <div className="font-bold text-[#E6F1FF] mb-1">{t('admin.layout_split', 'Split')}</div>
                 <div className="text-xs text-[#8892B0]">{t('admin.layout_split_desc', 'Sidebar layout where key indicators focus on one side.')}</div>
@@ -5134,7 +5173,7 @@ function WeeklyReportsManager() {
                   onClick={() => setSelectedReport(report)}
                   className={`w-full text-left p-3 rounded-lg border transition-all ${
                     selectedReport?.id === report.id
-                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      ? 'bg-[#112240] border-brand text-white shadow-md'
                       : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
                   }`}
                 >
@@ -5278,7 +5317,7 @@ function PublishingLogsManager() {
                   onClick={() => setSelectedLog(log)}
                   className={`w-full text-left p-3 rounded-lg border transition-all ${
                     selectedLog?.id === log.id
-                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      ? 'bg-[#112240] border-brand text-white shadow-md'
                       : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
                   }`}
                 >
@@ -5472,7 +5511,7 @@ function TopicHubManager() {
                   required
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
-                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm"
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-brand text-sm"
                   placeholder="e.g. Sourcing LED Headlights: Vetting for CANbus and Moisture Issues"
                 />
               </div>
@@ -5482,7 +5521,7 @@ function TopicHubManager() {
                 <select
                   value={newProduct}
                   onChange={e => setNewProduct(e.target.value)}
-                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm"
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-brand text-sm"
                 >
                   <option value="Auto Bulbs">Auto Bulbs (车灯/灯泡)</option>
                   <option value="Mirror Lens">Mirror Lens (后视镜玻璃)</option>
@@ -5496,7 +5535,7 @@ function TopicHubManager() {
                   value={newAngle}
                   onChange={e => setNewAngle(e.target.value)}
                   rows={4}
-                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-[#FFB300] text-sm resize-none"
+                  className="w-full bg-[#112240] border border-white/5 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-brand text-sm resize-none"
                   placeholder="Describe buyer worries or specific industry standard compliance details you want AI to highlight..."
                 />
               </div>
@@ -5543,7 +5582,7 @@ function TopicHubManager() {
                   onClick={() => setSelectedTopic(item)}
                   className={`w-full text-left p-3 rounded-lg border transition-all ${
                     selectedTopic?.id === item.id
-                      ? 'bg-[#112240] border-[#FFB300] text-white shadow-md'
+                      ? 'bg-[#112240] border-brand text-white shadow-md'
                       : 'bg-[#112240]/40 border-white/5 text-[#8892B0] hover:bg-[#112240]/70 hover:text-white'
                   }`}
                 >
@@ -5997,5 +6036,368 @@ function QualificationsManager() {
     </div>
   );
 }
+
+/* ========== HOME CONTENT MANAGER ========== */
+function HomeContentManager() {
+  const { t } = useTranslation();
+  const { siteSettings, setSiteSettings } = useStore();
+  const [activeSubTab, setActiveSubTab] = useState<'accordion' | 'manufacturing' | 'carousel' | 'painpoints' | 'contact'>('accordion');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const persist = async (patch: any) => {
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'global'), patch, { merge: true });
+      setSiteSettings({ ...siteSettings, ...patch });
+    } catch (e: any) {
+      console.error('Save home content failed:', e);
+      alert(t('admin.save_failed', 'Save failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const subTabs = [
+    { id: 'accordion' as const, label: 'About Accordion' },
+    { id: 'manufacturing' as const, label: 'Manufacturing' },
+    { id: 'carousel' as const, label: 'Video Carousel' },
+    { id: 'painpoints' as const, label: 'Pain Points' },
+    { id: 'contact' as const, label: 'Contact Labels' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-[#E6F1FF]">{t('admin.home_content', 'Home Page Content')}</h2>
+          <p className="text-sm text-[#8892B0] mt-1">Edit home page sections: cards, steps, carousel, pain points, and contact labels.</p>
+        </div>
+        {isSaving && <span className="text-sm text-[#FFB300]">Saving...</span>}
+      </div>
+
+      <div className="flex gap-2 border-b border-white/10 pb-2">
+        {subTabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSubTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeSubTab === tab.id ? 'bg-[#FFB300] text-[#0A192F]' : 'text-[#8892B0] hover:bg-[#112240] hover:text-[#E6F1FF]'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSubTab === 'accordion' && <AccordionCardsEditor persist={persist} isSaving={isSaving} />}
+      {activeSubTab === 'manufacturing' && <ManufacturingStepsEditor persist={persist} isSaving={isSaving} />}
+      {activeSubTab === 'carousel' && <CarouselEditor persist={persist} isSaving={isSaving} />}
+      {activeSubTab === 'painpoints' && <PainPointsEditor persist={persist} isSaving={isSaving} />}
+      {activeSubTab === 'contact' && <ContactLabelsEditor persist={persist} isSaving={isSaving} />}
+    </div>
+  );
+}
+
+function AccordionCardsEditor({ persist, isSaving }: { persist: (patch: any) => Promise<void>; isSaving?: boolean }) {
+  const { siteSettings } = useStore();
+  const [items, setItems] = useState<any[]>(siteSettings?.aboutAccordionCards || [
+    { id: '1', title: 'Headlight Lens', desc: 'High-definition vision', img: 'https://picsum.photos/seed/vida-headlight/300/200' },
+    { id: '2', title: 'LED Bulbs', desc: 'Energy-saving & bright', img: 'https://picsum.photos/seed/vida-led/300/200' },
+    { id: '3', title: 'Brake Pads', desc: 'Safe braking', img: 'https://picsum.photos/seed/vida-brake/300/200' },
+    { id: '4', title: 'Mirror System', desc: 'Wide-angle view', img: 'https://picsum.photos/seed/vida-mirror/300/200' },
+  ]);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  useEffect(() => { if (siteSettings?.aboutAccordionCards) setItems(siteSettings.aboutAccordionCards); }, [siteSettings]);
+
+  const update = (id: string, patch: any) => setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it));
+  const save = () => persist({ aboutAccordionCards: items });
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, id: string) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingId(id);
+    try { const url = await uploadFile(file, 'home-content'); update(id, { img: url }); } catch (err: any) { alert(`Upload failed: ${err?.message || ''}`); } finally { setUploadingId(null); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[#8892B0]">4 cards displayed in the About Accordion section.</p>
+      {items.map((it, i) => (
+        <div key={it.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-[#8892B0]">#{i + 1}</div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <input value={it.title} onChange={e => update(it.id, { title: e.target.value })} placeholder="Title" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+            <input value={it.desc} onChange={e => update(it.id, { desc: e.target.value })} placeholder="Description" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+            <div className="flex items-center gap-2">
+              {it.img && <img src={it.img} alt="" className="w-10 h-10 rounded object-cover" />}
+              <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                {uploadingId === it.id ? 'Uploading...' : 'Change Image'}
+                <input type="file" accept="image/*" className="hidden" onChange={e => handleUpload(e, it.id)} />
+              </label>
+            </div>
+          </div>
+        </div>
+      ))}
+      <button onClick={save} disabled={isSaving} className={`px-4 py-2 rounded-md font-medium ${isSaving ? 'bg-stone-400 text-stone-700 cursor-not-allowed' : 'bg-[#FFB300] text-[#0A192F] hover:bg-[#FFCA28]'}`}>{isSaving ? 'Saving...' : 'Save Accordion Cards'}</button>
+    </div>
+  );
+}
+
+function ManufacturingStepsEditor({ persist, isSaving }: { persist: (patch: any) => Promise<void>; isSaving?: boolean }) {
+  const { siteSettings } = useStore();
+  const [steps, setSteps] = useState<any[]>(siteSettings?.manufacturingSteps || [
+    { id: '1', iconName: 'Palette', title: 'Step1: Strategic Market Alignment', subtitle: 'Harmonizing brand identity...', desc: 'Description...', img: 'https://picsum.photos/seed/vida-step1/600/350' },
+    { id: '2', iconName: 'Shirt', title: 'Step2: Fabric Engineering', subtitle: 'Defining sensory experience...', desc: 'Description...', img: 'https://picsum.photos/seed/vida-step2/600/350' },
+    { id: '3', iconName: 'Printer', title: 'Step3: Print Testing', subtitle: 'Precision color matching...', desc: 'Description...', img: 'https://picsum.photos/seed/vida-step3/600/350' },
+    { id: '4', iconName: 'Tag', title: 'Step4: Labeling Strategy', subtitle: 'Merging safety compliance...', desc: 'Description...', img: 'https://picsum.photos/seed/vida-step4/600/350' },
+  ]);
+  const [certs, setCerts] = useState<string[]>(siteSettings?.manufacturingCerts || [
+    'https://picsum.photos/seed/cert1/220/300',
+    'https://picsum.photos/seed/cert2/220/300',
+    'https://picsum.photos/seed/cert3/220/300',
+  ]);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  useEffect(() => { if (siteSettings?.manufacturingSteps) setSteps(siteSettings.manufacturingSteps); }, [siteSettings]);
+  useEffect(() => { if (siteSettings?.manufacturingCerts) setCerts(siteSettings.manufacturingCerts); }, [siteSettings]);
+
+  const updateStep = (id: string, patch: any) => setSteps(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  const save = () => persist({ manufacturingSteps: steps, manufacturingCerts: certs });
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, id: string) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingId(id);
+    try { const url = await uploadFile(file, 'home-content'); updateStep(id, { img: url }); } catch (err: any) { alert(`Upload failed: ${err?.message || ''}`); } finally { setUploadingId(null); }
+  };
+
+  const iconOptions = ['Palette', 'Shirt', 'Printer', 'Tag', 'Settings', 'Wrench', 'Shield', 'Award'];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[#8892B0]">4 manufacturing steps with icon, title, subtitle, description, and image.</p>
+      {steps.map((s, i) => (
+        <div key={s.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-[#8892B0]">Step #{i + 1}</div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <input value={s.title} onChange={e => updateStep(s.id, { title: e.target.value })} placeholder="Title" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+            <select value={s.iconName} onChange={e => updateStep(s.id, { iconName: e.target.value })} className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm">
+              {iconOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+            <input value={s.subtitle} onChange={e => updateStep(s.id, { subtitle: e.target.value })} placeholder="Subtitle" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+            <div className="flex items-center gap-2">
+              {s.img && <img src={s.img} alt="" className="w-10 h-10 rounded object-cover" />}
+              <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                {uploadingId === s.id ? 'Uploading...' : 'Change Image'}
+                <input type="file" accept="image/*" className="hidden" onChange={e => handleUpload(e, s.id)} />
+              </label>
+            </div>
+          </div>
+          <textarea value={s.desc} onChange={e => updateStep(s.id, { desc: e.target.value })} placeholder="Description" rows={3} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+        </div>
+      ))}
+      <div className="border-t border-white/10 pt-4">
+        <p className="text-sm text-[#8892B0] mb-2">Certificate Images</p>
+        <div className="grid md:grid-cols-3 gap-3">
+          {certs.map((url, i) => (
+            <div key={i} className="flex items-center gap-2">
+              {url && <img src={url} alt="" className="w-10 h-10 rounded object-cover" />}
+              <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                Cert {i + 1}
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const newUrl = await uploadFile(file, 'home-content'); setCerts(prev => { const arr = [...prev]; arr[i] = newUrl; return arr; }); } catch (err: any) { alert(`Upload failed: ${err?.message || ''}`); } }} />
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+      <button onClick={save} disabled={isSaving} className={`px-4 py-2 rounded-md font-medium ${isSaving ? 'bg-stone-400 text-stone-700 cursor-not-allowed' : 'bg-[#FFB300] text-[#0A192F] hover:bg-[#FFCA28]'}`}>{isSaving ? 'Saving...' : 'Save Manufacturing Steps'}</button>
+    </div>
+  );
+}
+
+function CarouselEditor({ persist, isSaving }: { persist: (patch: any) => Promise<void>; isSaving?: boolean }) {
+  const { siteSettings } = useStore();
+  const [slides, setSlides] = useState<any[]>(siteSettings?.processCarouselItems || [
+    { id: '1', type: 'image', src: 'https://picsum.photos/seed/factory1/600/900', alt: 'Sewing process' },
+    { id: '2', type: 'image', src: 'https://picsum.photos/seed/factory2/600/900', alt: 'Cutting fabric' },
+    { id: '3', type: 'image', src: 'https://picsum.photos/seed/factory3/600/900', alt: 'Pattern printing' },
+    { id: '4', type: 'video', source: 'upload', src: '/uploads/watermarked_preview.mp4', poster: 'https://picsum.photos/seed/factory4/600/900', alt: 'Assembly line' },
+    { id: '5', type: 'video', source: 'upload', src: '', poster: 'https://picsum.photos/seed/factory5/600/900', alt: 'Quality check' },
+    { id: '6', type: 'image', src: 'https://picsum.photos/seed/factory6/600/900', alt: 'Packaging' },
+  ]);
+  const [certifications, setCertifications] = useState<string[]>(siteSettings?.processCarouselCertifications || [
+    'BSCI Compliant Kids Wear Factory',
+    'Certified Safety: OEKO-TEX Standard 100',
+    'GOTS Certified Organic Production',
+  ]);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  useEffect(() => { if (siteSettings?.processCarouselItems) setSlides(siteSettings.processCarouselItems); }, [siteSettings]);
+  useEffect(() => { if (siteSettings?.processCarouselCertifications) setCertifications(siteSettings.processCarouselCertifications); }, [siteSettings]);
+
+  const updateSlide = (id: string, patch: any) => setSlides(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  const save = () => persist({ processCarouselItems: slides, processCarouselCertifications: certifications });
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, id: string, field: 'src' | 'poster') => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingId(`${id}-${field}`);
+    try { const url = await uploadFile(file, 'home-content'); updateSlide(id, { [field]: url }); } catch (err: any) { alert(`Upload failed: ${err?.message || ''}`); } finally { setUploadingId(null); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[#8892B0]">Carousel slides and certification labels.</p>
+      <div className="border border-white/10 rounded-xl p-4">
+        <p className="text-sm font-medium text-[#E6F1FF] mb-2">Certification Labels</p>
+        {certifications.map((cert, i) => (
+          <input key={i} value={cert} onChange={e => { const arr = [...certifications]; arr[i] = e.target.value; setCertifications(arr); }} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm mb-2" />
+        ))}
+      </div>
+      {slides.map((s, i) => (
+        <div key={s.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-[#8892B0]">Slide #{i + 1} — {s.type}</div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <select value={s.type} onChange={e => updateSlide(s.id, { type: e.target.value, source: e.target.value === 'video' ? 'upload' : undefined })} className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm">
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+            </select>
+            {s.type === 'video' && (
+              <select value={s.source || 'upload'} onChange={e => updateSlide(s.id, { source: e.target.value })} className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm">
+                <option value="upload">Upload File</option>
+                <option value="youtube">YouTube</option>
+              </select>
+            )}
+            <input value={s.alt} onChange={e => updateSlide(s.id, { alt: e.target.value })} placeholder="Alt text" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {s.type === 'image' && (
+              <div className="flex items-center gap-2">
+                {s.src && <img src={s.src} alt="" className="w-10 h-10 rounded object-cover" />}
+                <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                  {uploadingId === `${s.id}-src` ? 'Uploading...' : 'Image'}
+                  <input type="file" accept="image/*" className="hidden" onChange={e => handleUpload(e, s.id, 'src')} />
+                </label>
+              </div>
+            )}
+            {s.type === 'video' && s.source === 'upload' && (
+              <div className="flex items-center gap-2">
+                {s.src && <img src={s.poster || s.src} alt="" className="w-10 h-10 rounded object-cover" />}
+                <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                  {uploadingId === `${s.id}-src` ? 'Uploading...' : 'Video File'}
+                  <input type="file" accept="video/*" className="hidden" onChange={e => handleUpload(e, s.id, 'src')} />
+                </label>
+              </div>
+            )}
+            {s.type === 'video' && (
+              <div className="flex items-center gap-2">
+                {s.poster && <img src={s.poster} alt="" className="w-10 h-10 rounded object-cover" />}
+                <label className="flex-1 px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm cursor-pointer hover:bg-[#1a2f4a] transition-colors text-center">
+                  {uploadingId === `${s.id}-poster` ? 'Uploading...' : 'Poster Image'}
+                  <input type="file" accept="image/*" className="hidden" onChange={e => handleUpload(e, s.id, 'poster')} />
+                </label>
+              </div>
+            )}
+          </div>
+          {s.type === 'video' && (
+            <input value={s.src} onChange={e => updateSlide(s.id, { src: e.target.value })} placeholder={s.source === 'youtube' ? 'YouTube URL (e.g. https://youtu.be/xxxx)' : 'Video URL (or upload above)'} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+          )}
+        </div>
+      ))}
+      <button onClick={save} disabled={isSaving} className={`px-4 py-2 rounded-md font-medium ${isSaving ? 'bg-stone-400 text-stone-700 cursor-not-allowed' : 'bg-[#FFB300] text-[#0A192F] hover:bg-[#FFCA28]'}`}>{isSaving ? 'Saving...' : 'Save Carousel'}</button>
+    </div>
+  );
+}
+
+function PainPointsEditor({ persist, isSaving }: { persist: (patch: any) => Promise<void>; isSaving?: boolean }) {
+  const { siteSettings } = useStore();
+  const [painPoints, setPainPoints] = useState<any[]>(siteSettings?.painPoints || [
+    { id: '1', iconName: 'ShieldAlert', title: 'Safety', desc: 'Quality control fragmentation and safety hazards...' },
+    { id: '2', iconName: 'ThumbsDown', title: 'Quality', desc: 'Uneven stitching, fitting deformation...' },
+    { id: '3', iconName: 'Ban', title: 'MOQ', desc: 'Strict high minimum orders...' },
+    { id: '4', iconName: 'Frown', title: 'Sampling', desc: 'Slow and inaccurate sampling...' },
+    { id: '5', iconName: 'Layers', title: 'Materials', desc: 'Mystery blends and yarn substitutions...' },
+    { id: '6', iconName: 'Headphones', title: 'Support', desc: '"Communication black holes."...' },
+  ]);
+  const [solutions, setSolutions] = useState<any[]>(siteSettings?.solutions || [
+    { id: '1', iconName: 'BadgeCheck', title: 'Safety', desc: '100% needle detection...' },
+    { id: '2', iconName: 'Gem', title: 'Quality', desc: 'Precision Shima Seiki technology...' },
+    { id: '3', iconName: 'Boxes', title: 'MOQ', desc: 'Growth-friendly low minimums...' },
+    { id: '4', iconName: 'ClipboardCheck', title: 'Sampling', desc: 'Fast 7–14 day prototype turnaround...' },
+    { id: '5', iconName: 'Truck', title: 'Materials', desc: 'Certified sustainable yarns...' },
+    { id: '6', iconName: 'Headphones', title: 'Support', desc: 'Proactive communication...' },
+  ]);
+
+  useEffect(() => { if (siteSettings?.painPoints) setPainPoints(siteSettings.painPoints); }, [siteSettings]);
+  useEffect(() => { if (siteSettings?.solutions) setSolutions(siteSettings.solutions); }, [siteSettings]);
+
+  const updatePain = (id: string, patch: any) => setPainPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+  const updateSolution = (id: string, patch: any) => setSolutions(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  const save = () => persist({ painPoints, solutions });
+
+  const iconOptions = ['ShieldAlert', 'ThumbsDown', 'Gem', 'Ban', 'Boxes', 'Frown', 'ClipboardCheck', 'XCircle', 'Truck', 'Layers', 'Headphones', 'BadgeCheck'];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm font-medium text-[#E6F1FF] mb-2">Pain Points (left/off state)</p>
+        {painPoints.map((p) => (
+          <div key={p.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-3 space-y-2 mb-2">
+            <div className="grid md:grid-cols-3 gap-2">
+              <input value={p.title} onChange={e => updatePain(p.id, { title: e.target.value })} placeholder="Title" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+              <select value={p.iconName} onChange={e => updatePain(p.id, { iconName: e.target.value })} className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm">
+                {iconOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+            <textarea value={p.desc} onChange={e => updatePain(p.id, { desc: e.target.value })} placeholder="Description" rows={2} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+          </div>
+        ))}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-[#E6F1FF] mb-2">Solutions (right/on state)</p>
+        {solutions.map((s) => (
+          <div key={s.id} className="bg-[#0A192F] border border-white/5 rounded-xl p-3 space-y-2 mb-2">
+            <div className="grid md:grid-cols-3 gap-2">
+              <input value={s.title} onChange={e => updateSolution(s.id, { title: e.target.value })} placeholder="Title" className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+              <select value={s.iconName} onChange={e => updateSolution(s.id, { iconName: e.target.value })} className="px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm">
+                {iconOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+            <textarea value={s.desc} onChange={e => updateSolution(s.id, { desc: e.target.value })} placeholder="Description" rows={2} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+          </div>
+        ))}
+      </div>
+      <button onClick={save} disabled={isSaving} className={`px-4 py-2 rounded-md font-medium ${isSaving ? 'bg-stone-400 text-stone-700 cursor-not-allowed' : 'bg-[#FFB300] text-[#0A192F] hover:bg-[#FFCA28]'}`}>{isSaving ? 'Saving...' : 'Save Pain Points'}</button>
+    </div>
+  );
+}
+
+function ContactLabelsEditor({ persist, isSaving }: { persist: (patch: any) => Promise<void>; isSaving?: boolean }) {
+  const { siteSettings } = useStore();
+  const [labels, setLabels] = useState<any>(siteSettings?.contactFormLabels || { name: '', phone: '', email: '', message: '', send: '' });
+
+  useEffect(() => { if (siteSettings?.contactFormLabels) setLabels(siteSettings.contactFormLabels); }, [siteSettings]);
+
+  const update = (key: string, value: string) => setLabels((prev: any) => ({ ...prev, [key]: value }));
+  const save = () => persist({ contactFormLabels: labels });
+
+  const fields = [
+    { key: 'name', label: 'Name Label', defaultVal: 'Name' },
+    { key: 'phone', label: 'Phone Label', defaultVal: 'Phone' },
+    { key: 'email', label: 'Email Label', defaultVal: 'Email' },
+    { key: 'message', label: 'Message Label', defaultVal: 'Message' },
+    { key: 'send', label: 'Send Button Text', defaultVal: 'Send' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[#8892B0]">Customize contact form field labels. Leave blank to use default translations.</p>
+      {fields.map(f => (
+        <div key={f.key} className="bg-[#0A192F] border border-white/5 rounded-xl p-4">
+          <label className="block text-sm text-[#8892B0] mb-1">{f.label}</label>
+          <input value={labels[f.key] || ''} onChange={e => update(f.key, e.target.value)} placeholder={`Default: ${f.defaultVal}`} className="w-full px-3 py-2 bg-[#112240] border border-white/10 rounded text-white text-sm" />
+        </div>
+      ))}
+      <button onClick={save} disabled={isSaving} className={`px-4 py-2 rounded-md font-medium ${isSaving ? 'bg-stone-400 text-stone-700 cursor-not-allowed' : 'bg-[#FFB300] text-[#0A192F] hover:bg-[#FFCA28]'}`}>{isSaving ? 'Saving...' : 'Save Contact Labels'}</button>
+    </div>
+  );
+}
+
 
 

@@ -107,14 +107,14 @@ export default function ShipTo() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-12">
         <SEO title="Ship Worldwide | Vida Auto" description="Vida Auto ships OEM-quality headlight covers and auto bulbs worldwide. Select your region." path="/ship-to" breadcrumbs={[{ name: 'Home', url: '/' }, { name: 'Ship Worldwide', url: '/ship-to' }]} />
-        <h1 className="text-3xl font-bold text-[#E6F1FF] mb-8">{t('ship.select_region', 'Select Your Region')}</h1>
+        <h1 className="text-3xl font-bold text-charcoal mb-8">{t('ship.select_region', 'Select Your Region')}</h1>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {Object.values(REGIONS).map(r => (
-            <Link key={r.slug} to={`/ship-to/${r.slug}`} className="bg-[#112240] rounded-xl border border-white/5 p-6 hover:border-[#FFB300]/50 transition-all hover:-translate-y-1 duration-300 group">
-              <Truck className="w-8 h-8 text-[#FFB300] mb-4" />
-              <h2 className="text-lg font-semibold text-[#E6F1FF] mb-2">{r.title}</h2>
-              <p className="text-sm text-[#8892B0] mb-4 line-clamp-2">{r.description}</p>
-              <span className="text-sm text-[#FFB300] flex items-center">{t('home.view_details', 'View Details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
+            <Link key={r.slug} to={`/ship-to/${r.slug}`} className="bg-white rounded-xl border border-stone-100 p-6 hover:border-brand/50 transition-all hover:-translate-y-1 duration-300 group">
+              <Truck className="w-8 h-8 text-brand mb-4" />
+              <h2 className="text-lg font-semibold text-charcoal mb-2">{r.title}</h2>
+              <p className="text-sm text-charcoal/60 mb-4 line-clamp-2">{r.description}</p>
+              <span className="text-sm text-brand flex items-center">{t('home.view_details', 'View Details')} <ArrowRight className="w-4 h-4 ml-1" /></span>
             </Link>
           ))}
         </div>
@@ -139,46 +139,46 @@ export default function ShipTo() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <SEO title={data.seoTitle} description={data.seoDesc} path={`/ship-to/${data.slug}`} jsonLd={jsonLd} breadcrumbs={[{ name: 'Home', url: '/' }, { name: 'Ship Worldwide', url: '/ship-to' }, { name: data.title, url: `/ship-to/${data.slug}` }]} />
 
-      <nav className="text-sm text-[#8892B0] mb-6">
-        <Link to="/" className="hover:text-[#FFB300]">Home</Link>
+      <nav className="text-sm text-charcoal/60 mb-6">
+        <Link to="/" className="hover:text-brand">Home</Link>
         <span className="mx-2">/</span>
-        <Link to="/ship-to" className="hover:text-[#FFB300]">Ship Worldwide</Link>
+        <Link to="/ship-to" className="hover:text-brand">Ship Worldwide</Link>
         <span className="mx-2">/</span>
-        <span className="text-[#E6F1FF]">{data.title}</span>
+        <span className="text-charcoal">{data.title}</span>
       </nav>
 
-      <h1 className="text-3xl md:text-4xl font-bold text-[#E6F1FF] mb-6">{data.title}</h1>
-      <p className="text-lg text-[#8892B0] mb-10 max-w-3xl">{data.description}</p>
+      <h1 className="text-3xl md:text-4xl font-bold text-charcoal mb-6">{data.title}</h1>
+      <p className="text-lg text-charcoal/60 mb-10 max-w-3xl">{data.description}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <div className="bg-[#112240] rounded-xl border border-white/5 p-5">
-          <Truck className="w-6 h-6 text-[#FFB300] mb-3" />
-          <h3 className="text-sm font-semibold text-[#E6F1FF] mb-1">Shipping Routes</h3>
-          <p className="text-xs text-[#8892B0]">{data.shipping}</p>
+        <div className="bg-white rounded-xl border border-stone-100 p-5">
+          <Truck className="w-6 h-6 text-brand mb-3" />
+          <h3 className="text-sm font-semibold text-charcoal mb-1">Shipping Routes</h3>
+          <p className="text-xs text-charcoal/60">{data.shipping}</p>
         </div>
-        <div className="bg-[#112240] rounded-xl border border-white/5 p-5">
-          <Clock className="w-6 h-6 text-[#FFB300] mb-3" />
-          <h3 className="text-sm font-semibold text-[#E6F1FF] mb-1">Delivery Time</h3>
-          <p className="text-xs text-[#8892B0]">{data.delivery}</p>
+        <div className="bg-white rounded-xl border border-stone-100 p-5">
+          <Clock className="w-6 h-6 text-brand mb-3" />
+          <h3 className="text-sm font-semibold text-charcoal mb-1">Delivery Time</h3>
+          <p className="text-xs text-charcoal/60">{data.delivery}</p>
         </div>
-        <div className="bg-[#112240] rounded-xl border border-white/5 p-5">
-          <ShieldCheck className="w-6 h-6 text-[#FFB300] mb-3" />
-          <h3 className="text-sm font-semibold text-[#E6F1FF] mb-1">Quality Assurance</h3>
-          <p className="text-xs text-[#8892B0]">OEM-equivalent quality with full QC inspection before shipment</p>
+        <div className="bg-white rounded-xl border border-stone-100 p-5">
+          <ShieldCheck className="w-6 h-6 text-brand mb-3" />
+          <h3 className="text-sm font-semibold text-charcoal mb-1">Quality Assurance</h3>
+          <p className="text-xs text-charcoal/60">OEM-equivalent quality with full QC inspection before shipment</p>
         </div>
-        <div className="bg-[#112240] rounded-xl border border-white/5 p-5">
-          <Package className="w-6 h-6 text-[#FFB300] mb-3" />
-          <h3 className="text-sm font-semibold text-[#E6F1FF] mb-1">Packaging</h3>
-          <p className="text-xs text-[#8892B0]">Individual box + carton + pallet, export-grade protection</p>
+        <div className="bg-white rounded-xl border border-stone-100 p-5">
+          <Package className="w-6 h-6 text-brand mb-3" />
+          <h3 className="text-sm font-semibold text-charcoal mb-1">Packaging</h3>
+          <p className="text-xs text-charcoal/60">Individual box + carton + pallet, export-grade protection</p>
         </div>
       </div>
 
-      <div className="bg-[#112240] rounded-xl border border-white/5 p-6 mb-12">
-        <h2 className="text-xl font-bold text-[#E6F1FF] mb-4">Why Choose Vida Auto</h2>
+      <div className="bg-white rounded-xl border border-stone-100 p-6 mb-12">
+        <h2 className="text-xl font-bold text-charcoal mb-4">Why Choose Vida Auto</h2>
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {data.highlights.map((h, i) => (
-            <li key={i} className="flex items-start text-sm text-[#8892B0]">
-              <span className="text-[#FFB300] mr-2 mt-0.5">✓</span>
+            <li key={i} className="flex items-start text-sm text-charcoal/60">
+              <span className="text-brand mr-2 mt-0.5">✓</span>
               {h}
             </li>
           ))}
@@ -186,24 +186,24 @@ export default function ShipTo() {
       </div>
 
       <div className="mb-12">
-        <h2 className="text-xl font-bold text-[#E6F1FF] mb-4">Popular Brands for This Region</h2>
+        <h2 className="text-xl font-bold text-charcoal mb-4">Popular Brands for This Region</h2>
         <div className="flex flex-wrap gap-3">
           {data.popular.map(brand => (
-            <Link key={brand} to={`/products?search=${encodeURIComponent(brand)}`} className="px-4 py-2 bg-[#112240] border border-white/10 rounded-lg text-sm text-[#E6F1FF] hover:border-[#FFB300]/50 transition-colors">
+            <Link key={brand} to={`/products?search=${encodeURIComponent(brand)}`} className="px-4 py-2 bg-white border border-stone-200 rounded-lg text-sm text-charcoal hover:border-brand/50 transition-colors">
               {brand}
             </Link>
           ))}
         </div>
       </div>
 
-      <div className="bg-gradient-to-r from-[#FFB300]/10 to-transparent rounded-xl border border-[#FFB300]/20 p-8 text-center">
-        <h2 className="text-2xl font-bold text-[#E6F1FF] mb-3">Ready to Order?</h2>
-        <p className="text-[#8892B0] mb-6">Contact us for a wholesale quote with FOB/CIF pricing tailored to your region.</p>
+      <div className="bg-gradient-to-r from-brand/10 to-transparent rounded-xl border border-brand/20 p-8 text-center">
+        <h2 className="text-2xl font-bold text-charcoal mb-3">Ready to Order?</h2>
+        <p className="text-charcoal/60 mb-6">Contact us for a wholesale quote with FOB/CIF pricing tailored to your region.</p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link to="/products" className="px-6 py-3 bg-[#FFB300] text-[#0A192F] rounded-lg font-semibold hover:bg-[#FFCA28] transition-colors">
+          <Link to="/products" className="px-6 py-3 bg-brand text-white rounded-lg font-semibold hover:bg-brand-light transition-colors">
             Browse Catalog
           </Link>
-          <Link to="/#contact" className="px-6 py-3 border border-[#FFB300] text-[#FFB300] rounded-lg font-semibold hover:bg-[#FFB300]/10 transition-colors">
+          <Link to="/#contact" className="px-6 py-3 border border-brand text-brand rounded-lg font-semibold hover:bg-brand/10 transition-colors">
             Get a Quote
           </Link>
         </div>

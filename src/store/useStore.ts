@@ -67,12 +67,60 @@ interface SiteSettings {
   catalogs?: CatalogItem[];
   sourcingCategories?: SourcingGuideCategory[];
   sourcingFeatured?: SourcingGuideFeatured;
+  aboutAccordionCards?: AboutAccordionCard[];
+  manufacturingSteps?: ManufacturingStep[];
+  manufacturingCerts?: string[];
+  processCarouselItems?: ProcessCarouselItem[];
+  processCarouselCertifications?: string[];
+  painPoints?: PainPointItem[];
+  solutions?: PainPointItem[];
+  contactFormLabels?: ContactFormLabels;
 }
 
 export interface CatalogItem {
   id: string;
   title: string;
   fileUrl: string;
+}
+
+export interface AboutAccordionCard {
+  id: string;
+  title: string;
+  desc: string;
+  img: string;
+}
+
+export interface ManufacturingStep {
+  id: string;
+  title: string;
+  subtitle: string;
+  desc: string;
+  img: string;
+  iconName?: string;
+}
+
+export interface ProcessCarouselItem {
+  id: string;
+  type: 'image' | 'video';
+  src: string;
+  poster?: string;
+  alt: string;
+  source?: 'upload' | 'youtube';
+}
+
+export interface PainPointItem {
+  id: string;
+  title: string;
+  desc: string;
+  iconName?: string;
+}
+
+export interface ContactFormLabels {
+  name?: string;
+  phone?: string;
+  email?: string;
+  message?: string;
+  send?: string;
 }
 
 export interface AboutSection {

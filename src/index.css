@@ -2,11 +2,41 @@
 
 @theme {
   --font-sans: 'Helvetica Neue', Arial, sans-serif;
+  --color-brand: #18533A;
+  --color-brand-light: #1f6b4a;
+  --color-brand-dark: #123d2b;
+  --color-cream: #F6F6F6;
+  --color-cream-dark: #EFEFEF;
+  --color-charcoal: #2D2D2D;
+  --color-terracotta: #D4A574;
+  --color-sage: #E8F5E9;
+  --color-sage-dark: #C8E6C9;
 }
 
 body {
-  background-color: #0A192F;
-  color: #E6F1FF;
+  background-color: #ffffff;
+  color: #2D2D2D;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
+
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient-flow {
+  background: linear-gradient(-45deg, #F6F6F6, #ffffff, #E8F5E9, #F6F6F6);
+  background-size: 400% 400%;
+  animation: gradient-flow 15s ease infinite;
 }
 
 /* User requested style for Footer grid container */
@@ -151,5 +181,9 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-
 
 div#root:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > nav:nth-of-type(1) > button:nth-of-type(5):hover::after {
   left: 100%;
+}
+
+section[id] {
+  scroll-margin-top: 96px;
 }
 

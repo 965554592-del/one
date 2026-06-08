@@ -58,8 +58,9 @@ export default function IdleInquiryPopup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const clientName = form.company || form.email.split('@')[0] || 'Guest Client';
       await addDoc(collection(db, 'messages'), {
-        name: '',
+        name: clientName,
         company: form.company,
         email: form.email,
         phone: form.phone,
@@ -72,6 +73,84 @@ export default function IdleInquiryPopup() {
         createdAt: new Date().toISOString(),
         ...(auth.currentUser ? { userId: auth.currentUser.uid, userEmail: auth.currentUser.email } : {}),
       });
+
+      // Shared event ID for pixel + CAPI deduplication
+      const { generateEventId } = await import('../lib/capi');
+      const leadEventId = generateEventId();
+
+      // Facebook Pixel Lead tracking
+      import('../lib/pixel').then(({ trackLead }) => trackLead({
+        content_name: 'Idle Inquiry Popup',
+        content_category: form.partNeed || 'general',
+        company: form.company,
+        eventID: leadEventId,
+      })).catch(() => {});
+
+      // Server-side CAPI (fire-and-forget)
+      if (siteSettings?.metaPixelId && siteSettings?.fbCapiAccessToken) {
+        const { sendCapiLead } = await import('../lib/capi');
+        sendCapiLead(
+          siteSettings.metaPixelId,
+          siteSettings.fbCapiAccessToken,
+          { email: form.email, phone: form.phone, fn: clientName, external_id: form.email },
+          { content_name: 'Idle Inquiry Popup', content_category: form.partNeed || 'general' },
+          leadEventId,
+          siteSettings.fbCapiTestCode || undefined,
+        );
+      }
+
+      // Google Analytics 4 + Google Ads conversion tracking
+      import('../lib/gtag').then(({ gtagTrackLead }) => gtagTrackLead({
+        content_name: 'Idle Inquiry Popup',
+        content_category: form.partNeed || 'general',
+        company: form.company,
+      })).catch(() => {});
+
+      // Fire-and-forget CRM webhook push
+      if (siteSettings?.crmWebhookEnabled && siteSettings?.crmWebhookUrl) {
+        import('../lib/webhook').then(({ pushToCRM }) =>
+          pushToCRM(
+            {
+              name: clientName,
+              company: form.company,
+              email: form.email,
+              phone: form.phone,
+              vehicleModel: '',
+              partNeed: form.partNeed,
+              quantity: '',
+              message: form.message,
+              source: 'idle_popup',
+              createdAt: new Date().toISOString(),
+            },
+            siteSettings.crmWebhookUrl,
+            siteSettings.crmWebhookHeaders,
+          )
+        ).catch(() => {});
+      }
+
+      // Fire-and-forget email notifications
+      import('../lib/email').then(({ buildSmtp, sendAdminNotification, sendCustomerAutoReply }) => {
+        const smtp = buildSmtp(siteSettings || {});
+        if (smtp) {
+          const emailForm = {
+            name: clientName,
+            company: form.company,
+            email: form.email,
+            phone: form.phone,
+            vehicleModel: '',
+            partNeed: form.partNeed,
+            quantity: '',
+            message: form.message,
+          };
+          if (siteSettings?.emailNotifyEnabled && siteSettings.notifyEmails) {
+            sendAdminNotification(smtp, siteSettings.notifyEmails, emailForm).catch(() => {});
+          }
+          if (siteSettings?.emailAutoReplyEnabled && form.email) {
+            sendCustomerAutoReply(smtp, form.email, clientName).catch(() => {});
+          }
+        }
+      }).catch(() => {});
+
       setSubmitted(true);
       setTimeout(() => {
         dismiss();

@@ -97,14 +97,68 @@ function injectBeforeHeadClose(html, injection) {
 async function loadBlogSlugs() {
   try {
     const db = getDb();
-    const snap = await db.collection('posts').where('published', '==', true).get();
-    const slugs = snap.docs.map((d) => d.data().slug || d.id);
+    const snap = await db.collection('blogPosts').orderBy('publishedAt', 'desc').get();
+    const slugs = snap.docs.map((d) => d.data().slug || d.id).filter(Boolean);
     console.log(`[prerender] Found ${slugs.length} published blog posts`);
     return slugs;
   } catch (err) {
     console.warn('[prerender] Skipping blog post pages:', err?.message || err);
     return [];
   }
+}
+
+async function fetchPrerenderBlogPosts() {
+  try {
+    const db = getDb();
+    const snap = await db.collection('blogPosts').orderBy('publishedAt', 'desc').get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn('[prerender] fetchPrerenderBlogPosts failed:', err?.message || err);
+    return [];
+  }
+}
+
+async function fetchPrerenderProducts() {
+  try {
+    const db = getDb();
+    const snap = await db.collection('products').orderBy('createdAt', 'desc').get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn('[prerender] fetchPrerenderProducts failed:', err?.message || err);
+    return [];
+  }
+}
+
+async function fetchPrerenderCategories() {
+  try {
+    const db = getDb();
+    const snap = await db.collection('categories').orderBy('order', 'asc').get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn('[prerender] fetchPrerenderCategories failed:', err?.message || err);
+    return [];
+  }
+}
+
+function getPostCounts(blogPosts) {
+  const counts = {};
+  const CATEGORY_KEYWORDS = {
+    sourcing:  ['sourcing', 'negotiation', 'moq', 'procurement', 'buying'],
+    quality:   ['quality', 'certification', 'iatf', 'iso', 'audit', 'testing', 'inspection'],
+    tech:      ['technology', 'technical', 'brake', 'headlight', 'bulb', 'suspension', 'product', 'lighting', 'roi'],
+    logistics: ['logistics', 'shipping', 'payment', 'fob', 'cif', 'freight', 'delivery'],
+    supplier:  ['supplier', 'factory', 'manufacturer', 'vendor', 'producer'],
+    trends:    ['trend', 'industry', 'market', 'ev', 'electric', 'compliance', 'news'],
+  };
+  blogPosts.forEach(d => {
+    const cat = (d.category || '').toLowerCase();
+    Object.entries(CATEGORY_KEYWORDS).forEach(([id, keywords]) => {
+      if (keywords.some(kw => cat.includes(kw))) {
+        counts[id] = (counts[id] || 0) + 1;
+      }
+    });
+  });
+  return counts;
 }
 
 /**
@@ -282,11 +336,14 @@ async function main() {
   });
 
   // Fetch data for injection (runs in parallel with route loading)
-  const [productIds, blogSlugs, siteSettings, topProductImages] = await Promise.all([
+  const [productIds, blogSlugs, siteSettings, topProductImages, blogPosts, products, categories] = await Promise.all([
     loadProductIds(),
     loadBlogSlugs(),
     fetchPublicSiteSettings(),
     fetchTopProductImages(30),
+    fetchPrerenderBlogPosts(),
+    fetchPrerenderProducts(),
+    fetchPrerenderCategories(),
   ]);
   const productRoutes = productIds.map((id) => `/products/${id}`);
   const blogRoutes = blogSlugs.map((slug) => `/blog/${slug}`);
@@ -330,7 +387,7 @@ async function main() {
       const escaped = JSON.stringify(siteSettings).replace(/<\/script>/gi, '<\\/script>');
       html = injectBeforeHeadClose(html, `<script>window.__SITE_SETTINGS__=${escaped};</script>`);
       if (siteSettings.heroBgUrl) {
-        html = injectBeforeHeadClose(html, `<link rel="preload" as="image" href="${siteSettings.heroBgUrl}">`);
+        html = injectBeforeHeadClose(html, `<link rel="preload" as="image" href="${siteSettings.heroBgUrl}" fetchpriority="high">`);
       }
       await fs.writeFile(homePath, html, 'utf8');
       console.log('[prerender] ✓ injected __SITE_SETTINGS__ + hero preload into home page');
@@ -339,7 +396,7 @@ async function main() {
     }
   }
 
-  // 2. Products page: preload first 30 product images
+  // 2. Products page: preload first 30 product images and inject data
   if (topProductImages.length > 0) {
     const productsPath = path.join(distDir, 'products', 'index.html');
     try {
@@ -353,6 +410,57 @@ async function main() {
       console.log(`[prerender] ✓ injected ${topProductImages.length} product image preloads into products page`);
     } catch (e) {
       console.warn('[prerender] Products page injection failed:', e?.message);
+    }
+  }
+
+  // 3. Products page data: embed __PRODUCTS__ and __CATEGORIES__
+  if (products.length > 0 || categories.length > 0) {
+    const productsPath = path.join(distDir, 'products', 'index.html');
+    try {
+      let html = await fs.readFile(productsPath, 'utf8');
+      let injections = '';
+      if (products.length > 0) {
+        const escapedProducts = JSON.stringify(products).replace(/<\/script>/gi, '<\\/script>');
+        injections += `<script>window.__PRODUCTS__=${escapedProducts};</script>\n`;
+      }
+      if (categories.length > 0) {
+        const escapedCategories = JSON.stringify(categories).replace(/<\/script>/gi, '<\\/script>');
+        injections += `<script>window.__CATEGORIES__=${escapedCategories};</script>\n`;
+      }
+      html = injectBeforeHeadClose(html, injections);
+      await fs.writeFile(productsPath, html, 'utf8');
+      console.log(`[prerender] ✓ injected products/categories data into products index page`);
+    } catch (e) {
+      console.warn('[prerender] Products page data injection failed:', e?.message);
+    }
+  }
+
+  // 4. Blog page: embed __BLOG_POSTS__
+  if (blogPosts.length > 0) {
+    const blogPath = path.join(distDir, 'blog', 'index.html');
+    try {
+      let html = await fs.readFile(blogPath, 'utf8');
+      const escaped = JSON.stringify(blogPosts).replace(/<\/script>/gi, '<\\/script>');
+      html = injectBeforeHeadClose(html, `<script>window.__BLOG_POSTS__=${escaped};</script>`);
+      await fs.writeFile(blogPath, html, 'utf8');
+      console.log(`[prerender] ✓ injected ${blogPosts.length} blog posts into blog index page`);
+    } catch (e) {
+      console.warn('[prerender] Blog page injection failed:', e?.message);
+    }
+  }
+
+  // 5. Sourcing Guides page: embed __POST_COUNTS__
+  const postCounts = getPostCounts(blogPosts);
+  if (Object.keys(postCounts).length > 0) {
+    const sourcingPath = path.join(distDir, 'sourcing-guides', 'index.html');
+    try {
+      let html = await fs.readFile(sourcingPath, 'utf8');
+      const escaped = JSON.stringify(postCounts).replace(/<\/script>/gi, '<\\/script>');
+      html = injectBeforeHeadClose(html, `<script>window.__POST_COUNTS__=${escaped};</script>`);
+      await fs.writeFile(sourcingPath, html, 'utf8');
+      console.log('[prerender] ✓ injected __POST_COUNTS__ into sourcing guides index page');
+    } catch (e) {
+      console.warn('[prerender] Sourcing guides page injection failed:', e?.message);
     }
   }
 }

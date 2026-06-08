@@ -71,14 +71,14 @@ export default function BlogPost() {
   }, [post]);
 
   if (loading) {
-    return <div className="max-w-4xl mx-auto px-4 py-12 text-center text-[#8892B0]">{t('common.loading', 'Loading...')}</div>;
+    return <div className="max-w-4xl mx-auto px-4 py-12 text-center text-charcoal/60">{t('common.loading', 'Loading...')}</div>;
   }
 
   if (!post) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12 text-center">
-        <h1 className="text-2xl font-bold text-[#E6F1FF] mb-4">{t('blog.not_found', 'Article not found')}</h1>
-        <Link to="/blog" className="text-[#FFB300] hover:underline">{t('blog.back_to_blog', '← Back to Blog')}</Link>
+        <h1 className="text-2xl font-bold text-charcoal mb-4">{t('blog.not_found', 'Article not found')}</h1>
+        <Link to="/blog" className="text-brand hover:underline">{t('blog.back_to_blog', '← Back to Blog')}</Link>
       </div>
     );
   }
@@ -118,8 +118,8 @@ export default function BlogPost() {
         ]}
       />
 
-      <nav className="text-sm text-[#8892B0] mb-6">
-        <Link to="/blog" className="hover:text-[#FFB300] flex items-center inline-flex">
+      <nav className="text-sm text-charcoal/60 mb-6">
+        <Link to="/blog" className="hover:text-brand flex items-center inline-flex">
           <ArrowLeft className="w-4 h-4 mr-1" />
           {t('blog.back_to_blog', 'Back to Blog')}
         </Link>
@@ -134,10 +134,10 @@ export default function BlogPost() {
       <article>
         <header className="mb-8">
           {post.category && (
-            <span className="text-xs text-[#FFB300] font-medium uppercase tracking-wide">{post.category}</span>
+            <span className="text-xs text-brand font-medium uppercase tracking-wide">{post.category}</span>
           )}
-          <h1 className="text-3xl md:text-4xl font-bold text-[#E6F1FF] mt-2 mb-4">{post.title}</h1>
-          <div className="flex items-center gap-4 text-sm text-[#8892B0]">
+          <h1 className="text-3xl md:text-4xl font-bold text-charcoal mt-2 mb-4">{post.title}</h1>
+          <div className="flex items-center gap-4 text-sm text-charcoal/60">
             {post.author && <span className="flex items-center"><User className="w-4 h-4 mr-1" />{post.author}</span>}
             <span className="flex items-center"><Calendar className="w-4 h-4 mr-1" />{post.publishedAt?.split('T')[0]}</span>
             {post.readTime && <span className="flex items-center"><Clock className="w-4 h-4 mr-1" />{post.readTime}</span>}
@@ -145,35 +145,35 @@ export default function BlogPost() {
         </header>
 
         <div
-          className="prose prose-invert prose-lg max-w-none
-            prose-headings:text-[#E6F1FF] prose-headings:font-bold
-            prose-p:text-[#8892B0] prose-p:leading-relaxed
-            prose-a:text-[#FFB300] prose-a:no-underline hover:prose-a:underline
-            prose-strong:text-[#E6F1FF]
-            prose-li:text-[#8892B0]
+          className="prose prose prose-lg max-w-none
+            prose-headings:text-charcoal prose-headings:font-bold
+            prose-p:text-charcoal/60 prose-p:leading-relaxed
+            prose-a:text-brand prose-a:no-underline hover:prose-a:underline
+            prose-strong:text-charcoal
+            prose-li:text-charcoal/60
             prose-img:rounded-xl
-            prose-blockquote:border-[#FFB300] prose-blockquote:text-[#8892B0]"
+            prose-blockquote:border-brand prose-blockquote:text-charcoal/60"
           dangerouslySetInnerHTML={{ __html: post.content }}
         />
 
         {post.tags && post.tags.length > 0 && (
-          <div className="mt-10 pt-6 border-t border-white/10">
-            <span className="text-sm text-[#8892B0] mr-2">Tags:</span>
+          <div className="mt-10 pt-6 border-t border-stone-200">
+            <span className="text-sm text-charcoal/60 mr-2">Tags:</span>
             {post.tags.map(tag => (
-              <span key={tag} className="inline-block px-3 py-1 bg-[#112240] border border-white/10 rounded-full text-xs text-[#8892B0] mr-2 mb-2">{tag}</span>
+              <span key={tag} className="inline-block px-3 py-1 bg-white border border-stone-200 rounded-full text-xs text-charcoal/60 mr-2 mb-2">{tag}</span>
             ))}
           </div>
         )}
       </article>
 
-      <div className="mt-12 bg-gradient-to-r from-[#FFB300]/10 to-transparent rounded-xl border border-[#FFB300]/20 p-6 text-center">
-        <h3 className="text-lg font-bold text-[#E6F1FF] mb-2">{t('blog.cta_title', 'Need Auto Parts?')}</h3>
-        <p className="text-sm text-[#8892B0] mb-4">{t('blog.cta_desc', 'Browse our catalog or contact us for wholesale pricing.')}</p>
+      <div className="mt-12 bg-gradient-to-r from-brand/10 to-transparent rounded-xl border border-brand/20 p-6 text-center">
+        <h3 className="text-lg font-bold text-charcoal mb-2">{t('blog.cta_title', 'Need Auto Parts?')}</h3>
+        <p className="text-sm text-charcoal/60 mb-4">{t('blog.cta_desc', 'Browse our catalog or contact us for wholesale pricing.')}</p>
         <div className="flex gap-4 justify-center">
-          <Link to="/products" className="px-5 py-2 bg-[#FFB300] text-[#0A192F] rounded-lg font-medium text-sm hover:bg-[#FFCA28] transition-colors">
+          <Link to="/products" className="px-5 py-2 bg-brand text-white rounded-lg font-medium text-sm hover:bg-brand-light transition-colors">
             {t('blog.browse_catalog', 'Browse Catalog')}
           </Link>
-          <Link to="/#contact" className="px-5 py-2 border border-[#FFB300] text-[#FFB300] rounded-lg font-medium text-sm hover:bg-[#FFB300]/10 transition-colors">
+          <Link to="/#contact" className="px-5 py-2 border border-brand text-brand rounded-lg font-medium text-sm hover:bg-brand/10 transition-colors">
             {t('blog.get_quote', 'Get a Quote')}
           </Link>
         </div>
